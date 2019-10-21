@@ -15,14 +15,14 @@
 width:100%;
 height:calc(width * 1.75);
 min-width:33%;
-min-height: calc(width * 1.75);
+min-height: calc(min-width * 1.75);
 }
 
 
 .container {  
     display: grid;  
     grid-gap: 1px;  
-    grid-template-columns: repeat(auto-fit, minmax(200px, 33%));
+    grid-template-columns: repeat(auto-fit, minmax(calc(width * 1.75), 33%));
     grid-auto-columns:max-content ;
     grid-auto-rows:max-content;
 }
