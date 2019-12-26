@@ -8,16 +8,13 @@
 
 
 <style>
-
 body {background-color: DimGray;}
-
 .container {  
     display: grid;  
     grid-gap: 1px;  
     grid-template-columns: 1fr 1fr 1fr 1fr;
-    grid-template-rows: repeat(3, minmax(13vh, 33vh));
+    grid-template-rows: auto auto auto;
     }
-
 .playerframe {
     position: absolutee;
     top: 0;
@@ -26,15 +23,13 @@ body {background-color: DimGray;}
     height:100%;
     border: 0;
     }
-
 @media only screen and (min-width:1101px) and (max-width: 1200px) {
     .container {  
     display: grid;  
     grid-gap: 1px;  
     grid-template-columns: 1fr 1fr 1fr;
-    grid-template-rows: repeat(4, minmax(auto, 33vh));
+    grid-template-rows: auto auto auto auto;
     }
-
     .playerframe {
     position: absolutee;
     top: 0;
@@ -49,9 +44,8 @@ body {background-color: DimGray;}
     display: grid;  
     grid-gap: 1px;  
     grid-template-columns: 1fr 1fr;
-    grid-template-rows: repeat(6, minmax(auto, 33vh));
+    grid-template-rows: auto auto auto auto auto auto;
     }
-
     .playerframe {
     position: absolutee;
     top: 0;
@@ -59,17 +53,14 @@ body {background-color: DimGray;}
     height:100%;
     border: 0;
     }
-
 }
-
 @media only screen and (max-width: 800px) {
     .container {  
     display: grid;  
     grid-gap: 1px;  
     grid-template-columns: 1fr;
-    grid-template-rows: repeat(12, minmax(auto, 33vh));
+    grid-template-rows:  auto auto auto auto auto auto auto auto auto auto auto auto;
     }
-
     .playerframe {
     position: absolutee;
     top: 0;
@@ -77,11 +68,8 @@ body {background-color: DimGray;}
     height:100%;
     border: 0;
     }
-
 }
     
-
-
 </style>
 
 </head>
@@ -93,67 +81,116 @@ body {background-color: DimGray;}
     <a href="https://hkmap.live" target="_blank">HKMap Live</a>&nbsp;&nbsp;&nbsp;&nbsp;
     <a href="https://hk.mobi.yahoo.com/news/traffic-snapshot/hk" target="_blank">交通快拍- Yahoo新聞</a> &nbsp;&nbsp;&nbsp;&nbsp;
     </br>
+    <script async defer src="https://connect.facebook.net/en_US/sdk.js#xfbml=1&version=v3.2"></script>
      <div class="container">
         <div>
-            <iframe class="playerframe"
-                src="https://www.facebook.com/plugins/video.php?href=https://www.facebook.com/now.comNews/videos/563229617569570/"
-                 frameborder="0" scrolling="no"></iframe>
+            <div class="playerframe">
+                <div class="fb-video" 
+                   data-href="https://www.facebook.com/now.comNews/videos/563229617569570/"
+                   data-width="auto"
+                  data-allowfullscreen="true">
+               </div>
+            </div>
         </div>
         <div>
-            <iframe class="playerframe"
-                src="https://www.facebook.com/plugins/video.php?href=https://www.facebook.com/icablenews/videos/1047859032215926/"
-                 frameborder="0" scrolling="no"></iframe>
+            <div class="playerframe">
+                <div class="fb-video" 
+                   data-href="https://www.facebook.com/icablenews/videos/1047859032215926/"
+                   data-width="auto"
+                  data-allowfullscreen="true">
+               </div>
+            </div>
+       </div>
+        <div>
+            <div class="playerframe">
+                <div class="fb-video" 
+                   data-href="https://www.facebook.com/hk.nextmedia/videos/590433391720344/"
+                   data-width="auto"
+                  data-allowfullscreen="true">
+               </div>
+            </div>
         </div>
         <div>
-            <iframe class="playerframe"
-                src="https://www.facebook.com/plugins/video.php?href=https://www.facebook.com/hk.nextmedia/videos/590433391720344/"
-                 frameborder="0" scrolling="no"></iframe>
+            <div class="playerframe">
+                <div class="fb-video" 
+                   data-href="https://www.facebook.com/RTHKVNEWS/videos/595124401245877/"
+                   data-width="auto"
+                  data-allowfullscreen="true">
+               </div>
+            </div>
         </div>
         <div>
-            <iframe class="playerframe"
-                src="https://www.facebook.com/plugins/video.php?href=https://www.facebook.com/RTHKVNEWS/videos/595124401245877/"
-                 frameborder="0" scrolling="no"></iframe>
+            <div class="playerframe">
+                <div class="fb-video" 
+                   data-href="https://www.facebook.com/standnewshk/videos/529274394325608/"
+                   data-width="auto"
+                  data-allowfullscreen="true">
+               </div>
+            </div>
         </div>
         <div>
-            <iframe class="playerframe"
-                src="https://www.facebook.com/plugins/video.php?href=https://www.facebook.com/standnewshk/videos/529274394325608/"
-                 scrolling="no" frameborder="0"></iframe>
+            <div class="playerframe">
+                <div class="fb-video" 
+                   data-href="https://www.facebook.com/standnewshk/videos/3176329822383365/"
+                   data-width="auto"
+                  data-allowfullscreen="true">
+               </div>
+            </div>
         </div>
         <div>
-            <iframe class="playerframe"
-                src="https://www.facebook.com/plugins/video.php?href=https://www.facebook.com/standnewshk/videos/3176329822383365/"
-                 scrolling="no" frameborder="0"></iframe>
+            <div class="playerframe">
+                <div class="fb-video" 
+                   data-href="https://www.facebook.com/HK.CitizenMedia/videos/559934034864584/"
+                   data-width="auto"
+                  data-allowfullscreen="true">
+               </div>
+            </div>
         </div>
         <div>
-            <iframe class="playerframe"
-                src=https://www.facebook.com/plugins/video.php?href=https://www.facebook.com/HK.CitizenMedia/videos/559934034864584/"
-                 scrolling="no" frameborder="0"></iframe>
+            <div class="playerframe">
+                <div class="fb-video" 
+                   data-href="https://www.facebook.com/hk.nextmedia/videos/444654229754197/"
+                   data-width="auto"
+                  data-allowfullscreen="true">
+               </div>
+            </div>
         </div>
         <div>
-            <iframe class="playerframe"
-                src="https://www.facebook.com/plugins/video.php?href=https://www.facebook.com/hk.nextmedia/videos/444654229754197/"
-                 scrolling="no" frameborder="0"></iframe>
+            <div class="playerframe">
+                <div class="fb-video" 
+                   data-href="https://www.facebook.com/onccnews/videos/548277962569579/"
+                   data-width="auto"
+                  data-allowfullscreen="true">
+               </div>
+            </div>
         </div>
         <div>
-            <iframe class="playerframe"
-                src="https://www.facebook.com/plugins/video.php?href=https://www.facebook.com/onccnews/videos/548277962569579/"
-                 scrolling="no" frameborder="0"></iframe>
+            <div class="playerframe">
+                <div class="fb-video" 
+                   data-href="https://www.facebook.com/hk01wemedia/videos/958915627824460/"
+                   data-width="auto"
+                  data-allowfullscreen="true">
+               </div>
+            </div>
         </div>
         <div>
-            <iframe class="playerframe"
-                src="https://www.facebook.com/plugins/video.php?href=https://www.facebook.com/hk01wemedia/videos/958915627824460/"
-                 scrolling="no" frameborder="0"></iframe>
-        </div>
+            <div class="playerframe">
+                <div class="fb-video" 
+                   data-href="https://www.facebook.com/fans.hkgolden/videos/807832569657431/"
+                   data-width="auto"
+                  data-allowfullscreen="true">
+               </div>
+            </div>
+       </div>
         <div>
-            <iframe class="playerframe"
-                src="https://www.facebook.com/plugins/video.php?href=https://www.facebook.com/fans.hkgolden/videos/807832569657431/"
-                 frameborder="0" scrolling="no"></iframe>
-        </div>
-        <div>
-            <iframe class="playerframe"
-                src="https://www.facebook.com/plugins/video.php?href=https://www.facebook.com/fans.hkgolden/videos/1043175822697449/"
-                 frameborder="0" scrolling="no"></iframe>
+            <div class="playerframe">
+                <div class="fb-video" 
+                   data-href="https://www.facebook.com/now.comNews/fans.hkgolden/videos/1043175822697449/"
+                   data-width="auto"
+                  data-allowfullscreen="true">
+               </div>
+            </div>
         </div>
     </div>
 </body>
-    </html>
+</html>
