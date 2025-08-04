@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Space Invaders</title>
+  <style>
+    canvas { background: #000; display: block; margin: 0 auto; }
+    #controls { text-align: center; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <label>Player Image: <input type="file" id="playerImageInput" /></label>
+    <label>Invader Image: <input type="file" id="invaderImageInput" /></label>
+    <label>Bullet Image: <input type="file" id="bulletImageInput" /></label>
+  </div>
+  <canvas id="gameCanvas" width="600" height="400"></canvas>
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let playerImage = null;
+    let invaderImage = null;
+    let bulletImage = null;
+
+    document.getElementById('playerImageInput').addEventListener('change', handleUpload(img => playerImage = img));
+    document.getElementById('invaderImageInput').addEventListener('change', handleUpload(img => invaderImage = img));
+    document.getElementById('bulletImageInput').addEventListener('change', handleUpload(img => bulletImage = img));
+
+    function handleUpload(callback) {
+      return function (e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const img = new Image();
+        img.src = URL.createObjectURL(file);
+        img.onload = () => {
+          URL.revokeObjectURL(img.src);
+          callback(img);
+        };
+      };
+    }
+
+    const player = { x: canvas.width / 2 - 20, y: canvas.height - 30, width: 40, height: 20, speed: 5 };
+
+    const bullets = [];
+    const invaders = [];
+    const rows = 4;
+    const cols = 8;
+    const invaderWidth = 40;
+    const invaderHeight = 20;
+    let invaderDir = 1;
+    let invaderSpeed = 0.5;
+
+    function createInvaders() {
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          invaders.push({ x: 60 + c * 50, y: 60 + r * 40, width: invaderWidth, height: invaderHeight, alive: true });
+        }
+      }
+    }
+    createInvaders();
+
+    const keys = {};
+    document.addEventListener('keydown', e => keys[e.key] = true);
+    document.addEventListener('keyup', e => keys[e.key] = false);
+
+    function shoot() {
+      bullets.push({ x: player.x + player.width / 2 - 2, y: player.y, width: 4, height: 10, speed: 7 });
+    }
+
+    function update() {
+      if (keys['ArrowLeft']) player.x -= player.speed;
+      if (keys['ArrowRight']) player.x += player.speed;
+      if (keys[' '] && !keys['spacePressed']) { shoot(); keys['spacePressed'] = true; }
+      if (!keys[' ']) keys['spacePressed'] = false;
+
+      player.x = Math.max(0, Math.min(canvas.width - player.width, player.x));
+
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        bullets[i].y -= bullets[i].speed;
+        if (bullets[i].y + bullets[i].height < 0) bullets.splice(i, 1);
+      }
+
+      let edgeReached = false;
+      invaders.forEach(inv => {
+        if (!inv.alive) return;
+        inv.x += invaderDir * invaderSpeed;
+        if (inv.x <= 0 || inv.x + inv.width >= canvas.width) edgeReached = true;
+      });
+      if (edgeReached) {
+        invaderDir *= -1;
+        invaders.forEach(inv => inv.y += 20);
+      }
+
+      bullets.forEach(b => {
+        invaders.forEach(inv => {
+          if (inv.alive && b.x < inv.x + inv.width && b.x + b.width > inv.x && b.y < inv.y + inv.height && b.y + b.height > inv.y) {
+            inv.alive = false;
+            b.y = -10;
+          }
+        });
+      });
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (playerImage) {
+        ctx.drawImage(playerImage, player.x, player.y, player.width, player.height);
+      } else {
+        ctx.fillStyle = 'green';
+        ctx.fillRect(player.x, player.y, player.width, player.height);
+      }
+
+      bullets.forEach(b => {
+        if (bulletImage) {
+          ctx.drawImage(bulletImage, b.x, b.y, b.width, b.height);
+        } else {
+          ctx.fillStyle = 'white';
+          ctx.fillRect(b.x, b.y, b.width, b.height);
+        }
+      });
+
+      invaders.forEach(inv => {
+        if (!inv.alive) return;
+        if (invaderImage) {
+          ctx.drawImage(invaderImage, inv.x, inv.y, inv.width, inv.height);
+        } else {
+          ctx.fillStyle = 'red';
+          ctx.fillRect(inv.x, inv.y, inv.width, inv.height);
+        }
+      });
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+    gameLoop();
+  </script>
+</body>
+</html>
