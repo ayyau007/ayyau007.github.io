@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Space Invaders</title>
+  <style>
+    canvas { background: #000; display: block; margin: 0 auto; }
+    #controls { text-align: center; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <label>Player Image: <input type="file" id="playerImageInput" /></label>
+    <label>Invader Image: <input type="file" id="invaderImageInput" /></label>
+    <label>Bullet Image: <input type="file" id="bulletImageInput" /></label>
+    <label>Castle Image: <input type="file" id="castleImageInput" /></label>
+    <label>Spaceship Image: <input type="file" id="ufoImageInput" /></label>
+  </div>
+  <canvas id="gameCanvas" width="600" height="400"></canvas>
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let playerImage = null;
+    let invaderImage = null;
+    let bulletImage = null;
+    let castleImage = null;
+    let ufoImage = null;
+
+    document.getElementById('playerImageInput').addEventListener('change', handleUpload(img => playerImage = img));
+    document.getElementById('invaderImageInput').addEventListener('change', handleUpload(img => invaderImage = img));
+    document.getElementById('bulletImageInput').addEventListener('change', handleUpload(img => bulletImage = img));
+    document.getElementById('castleImageInput').addEventListener('change', handleUpload(img => castleImage = img));
+    document.getElementById('ufoImageInput').addEventListener('change', handleUpload(img => ufoImage = img));
+
+    function handleUpload(callback) {
+      return function (e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const img = new Image();
+        img.src = URL.createObjectURL(file);
+        img.onload = () => {
+          URL.revokeObjectURL(img.src);
+          callback(img);
+        };
+      };
+    }
+
+    const player = { x: canvas.width / 2 - 20, y: canvas.height - 30, width: 40, height: 20, speed: 5 };
+
+    const bullets = [];
+    const enemyBullets = [];
+    const invaders = [];
+    const castles = [];
+    const ufo = { x: 0, y: 30, width: 40, height: 20, speed: 2, active: false, direction: 1 };
+    const rows = 4;
+    const cols = 8;
+    const invaderWidth = 40;
+    const invaderHeight = 20;
+    let invaderDir = 1;
+    let invaderSpeed = 0.5;
+
+    let score = 0;
+    let lives = 3;
+    let highScore = parseInt(localStorage.getItem('highScore')) || 0;
+    let nextUfoTime = 0;
+
+    function createInvaders() {
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          invaders.push({ x: 60 + c * 50, y: 60 + r * 40, width: invaderWidth, height: invaderHeight, alive: true });
+        }
+      }
+    }
+    createInvaders();
+    createCastles();
+
+    const keys = {};
+    document.addEventListener('keydown', e => keys[e.key] = true);
+    document.addEventListener('keyup', e => keys[e.key] = false);
+
+    function shoot() {
+      if (bullets.length < 1) {
+        bullets.push({ x: player.x + player.width / 2 - 2, y: player.y, width: 4, height: 10, speed: 7 });
+      }
+    }
+
+    function update() {
+      if (keys['ArrowLeft']) player.x -= player.speed;
+      if (keys['ArrowRight']) player.x += player.speed;
+      if (keys[' '] && !keys['spacePressed']) { shoot(); keys['spacePressed'] = true; }
+      if (!keys[' ']) keys['spacePressed'] = false;
+
+      player.x = Math.max(0, Math.min(canvas.width - player.width, player.x));
+
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        bullets[i].y -= bullets[i].speed;
+        if (bullets[i].y + bullets[i].height < 0) { bullets.splice(i, 1); continue; }
+        let removed = false;
+        for (let c of castles) {
+          if (rectHit(bullets[i], c) && damageCastle(c, bullets[i])) { bullets.splice(i,1); removed = true; break; }
+        }
+        if (removed) continue;
+        for (let inv of invaders) {
+          if (inv.alive && rectHit(bullets[i], inv)) {
+            inv.alive = false;
+            bullets.splice(i,1);
+            addScore(10);
+            removed = true;
+            break;
+          }
+        }
+        if (removed) continue;
+        if (ufo.active && rectHit(bullets[i], ufo)) {
+          ufo.active = false;
+          bullets.splice(i,1);
+          addScore(100);
+        }
+      }
+
+      for (let i = enemyBullets.length - 1; i >= 0; i--) {
+        enemyBullets[i].y += enemyBullets[i].speed;
+        if (enemyBullets[i].y > canvas.height) { enemyBullets.splice(i,1); continue; }
+        if (rectHit(enemyBullets[i], player)) { enemyBullets.splice(i,1); hitPlayer(); continue; }
+        for (let c of castles) {
+          if (rectHit(enemyBullets[i], c) && damageCastle(c, enemyBullets[i])) { enemyBullets.splice(i,1); break; }
+        }
+      }
+
+      let edgeReached = false;
+      invaders.forEach(inv => {
+        if (!inv.alive) return;
+        inv.x += invaderDir * invaderSpeed;
+        if (inv.x <= 0 || inv.x + inv.width >= canvas.width) edgeReached = true;
+      });
+      if (edgeReached) {
+        invaderDir *= -1;
+        invaders.forEach(inv => inv.y += 20);
+      }
+
+      invaders.forEach(inv => {
+        if (inv.alive && inv.y + inv.height >= player.y) gameOver = true;
+      });
+
+      if (Math.random() < 0.02) {
+        const shooters = invaders.filter(inv => inv.alive);
+        if (shooters.length) {
+          const shooter = shooters[Math.floor(Math.random() * shooters.length)];
+          enemyBullets.push({ x: shooter.x + shooter.width / 2 - 2, y: shooter.y + shooter.height, width: 4, height: 10, speed: 3 });
+        }
+      }
+
+      if (!ufo.active && Date.now() > nextUfoTime && Math.random() < 0.005) {
+        ufo.active = true;
+        ufo.direction = Math.random() < 0.5 ? 1 : -1;
+        ufo.x = ufo.direction === 1 ? -ufo.width : canvas.width;
+        nextUfoTime = Date.now() + 30000;
+      }
+      if (ufo.active) {
+        ufo.x += ufo.speed * ufo.direction;
+        if (ufo.x > canvas.width || ufo.x + ufo.width < 0) ufo.active = false;
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (playerImage) {
+        ctx.drawImage(playerImage, player.x, player.y, player.width, player.height);
+      } else {
+        ctx.fillStyle = 'green';
+        ctx.fillRect(player.x, player.y, player.width, player.height);
+      }
+
+      castles.forEach(c => {
+        for (let r = 0; r < c.rows; r++) {
+          for (let col = 0; col < c.cols; col++) {
+            const index = r * c.cols + col;
+            if (!c.cells[index]) continue;
+            const cx = c.x + col * c.cellW;
+            const cy = c.y + r * c.cellH;
+            if (castleImage) {
+              ctx.drawImage(castleImage, col * (castleImage.width / c.cols), r * (castleImage.height / c.rows), castleImage.width / c.cols, castleImage.height / c.rows, cx, cy, c.cellW, c.cellH);
+            } else {
+              ctx.fillStyle = 'gray';
+              ctx.fillRect(cx, cy, c.cellW, c.cellH);
+            }
+          }
+        }
+      });
+
+      bullets.forEach(b => {
+        if (bulletImage) {
+          ctx.drawImage(bulletImage, b.x, b.y, b.width, b.height);
+        } else {
+          ctx.fillStyle = 'white';
+          ctx.fillRect(b.x, b.y, b.width, b.height);
+        }
+      });
+
+      enemyBullets.forEach(b => {
+        if (bulletImage) {
+          ctx.drawImage(bulletImage, b.x, b.y, b.width, b.height);
+        } else {
+          ctx.fillStyle = 'yellow';
+          ctx.fillRect(b.x, b.y, b.width, b.height);
+        }
+      });
+
+      invaders.forEach(inv => {
+        if (!inv.alive) return;
+        if (invaderImage) {
+          ctx.drawImage(invaderImage, inv.x, inv.y, inv.width, inv.height);
+        } else {
+          ctx.fillStyle = 'red';
+          ctx.fillRect(inv.x, inv.y, inv.width, inv.height);
+        }
+      });
+
+      if (ufo.active) {
+        if (ufoImage) {
+          ctx.drawImage(ufoImage, ufo.x, ufo.y, ufo.width, ufo.height);
+        } else {
+          ctx.fillStyle = 'purple';
+          ctx.fillRect(ufo.x, ufo.y, ufo.width, ufo.height);
+        }
+      }
+
+      ctx.fillStyle = 'white';
+      ctx.font = '16px Arial';
+      ctx.fillText('Score: ' + score, 10, 20);
+      ctx.fillText('Lives: ' + lives, 10, 40);
+      ctx.fillText('High: ' + highScore, canvas.width - 100, 20);
+
+      if (gameOver) {
+        ctx.fillStyle = 'white';
+        ctx.font = '30px Arial';
+        ctx.fillText('Game Over', canvas.width / 2 - 70, canvas.height / 2);
+      }
+    }
+
+    function rectHit(a, b) {
+      return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+    }
+
+    function damageCastle(castle, bullet) {
+      const bx = bullet.x + bullet.width / 2;
+      const by = bullet.y + bullet.height / 2;
+      const relX = bx - castle.x;
+      const relY = by - castle.y;
+      const col = Math.floor(relX / castle.cellW);
+      const row = Math.floor(relY / castle.cellH);
+      if (col >= 0 && col < castle.cols && row >= 0 && row < castle.rows) {
+        const index = row * castle.cols + col;
+        if (castle.cells[index]) {
+          castle.cells[index] = false;
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function addScore(points) {
+      score += points;
+      if (score > highScore) {
+        highScore = score;
+        localStorage.setItem('highScore', highScore);
+      }
+    }
+
+    function hitPlayer() {
+      lives--;
+      if (lives <= 0) {
+        gameOver = true;
+      } else {
+        player.x = canvas.width / 2 - player.width / 2;
+        bullets.length = 0;
+        enemyBullets.length = 0;
+      }
+    }
+
+    function gameLoop() {
+      if (!gameOver) {
+        update();
+        draw();
+        requestAnimationFrame(gameLoop);
+      } else {
+        draw();
+      }
+    }
+    let gameOver = false;
+    gameLoop();
+
+    function createCastles() {
+      const w = 40, h = 30, spacing = canvas.width / 5;
+      for (let i = 0; i < 4; i++) {
+        const x = spacing * (i + 1) - w / 2;
+        const y = canvas.height - 100;
+        const cols = 10, rows = 6;
+        const cells = Array(cols * rows).fill(true);
+        castles.push({ x, y, width: w, height: h, cols, rows, cells, cellW: w / cols, cellH: h / rows });
+      }
+    }
+  </script>
+</body>
+</html>
