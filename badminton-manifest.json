@@ -1,0 +1,9 @@
+{
+  "name": "Badminton Session Manager",
+  "short_name": "Badminton",
+  "start_url": "badminton.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "description": "Offline tool for organizing badminton courts",
+  "icons": []
+}

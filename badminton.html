@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="manifest" href="badminton-manifest.json">
+<title>Badminton Session Manager</title>
+<style>
+body {font-family: Arial, sans-serif; margin:0; padding:1rem;}
+#queue, #staging, .court {border:1px solid #ccc; min-height:60px; padding:0.5rem; margin-bottom:1rem;}
+.player {background:#e0e0e0; padding:0.25rem 0.5rem; margin:0.25rem; cursor:grab;}
+.container {display:flex; flex-wrap:wrap; gap:1rem;}
+.court {flex:1 1 45%;}
+.court-title {font-weight:bold; margin-bottom:0.5rem;}
+</style>
+</head>
+<body>
+<h1>Badminton Session Manager</h1>
+<div>
+<label for="courtCount">Courts:</label>
+<select id="courtCount">
+<option value="2">2</option>
+<option value="3">3</option>
+<option value="4">4</option>
+</select>
+</div>
+<div>
+<input id="playerName" placeholder="Player name">
+<button id="addPlayerBtn">Add Player</button>
+</div>
+<div id="queue" ondrop="drop(event)" ondragover="allowDrop(event)">
+<h3>Queue</h3>
+</div>
+<div class="container" id="courts"></div>
+<div id="staging" ondrop="drop(event)" ondragover="allowDrop(event)">
+<h3>Staging</h3>
+</div>
+<script src="badminton.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js');
+}
+</script>
+</body>
+</html>
