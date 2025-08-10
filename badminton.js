@@ -1,5 +1,6 @@
+const playersEl = document.getElementById('players');
 const queueEl = document.getElementById('queue');
-const stagingEl = document.getElementById('staging');
+const nextEl = document.getElementById('nextGame');
 const courtsEl = document.getElementById('courts');
 const playerInput = document.getElementById('playerName');
 const addBtn = document.getElementById('addPlayerBtn');
@@ -7,10 +8,14 @@ const courtCountSelect = document.getElementById('courtCount');
 
 let state = JSON.parse(localStorage.getItem('badmintonState') || '{}');
 if (!state.players) state.players = [];
-if (!state.staging) state.staging = [];
+if (!state.queue) { state.queue = state.players; state.players = []; }
+if (!state.nextGame) { state.nextGame = state.staging || []; delete state.staging; }
 if (!state.courts) state.courts = [[], []]; // default 2 courts
 
 courtCountSelect.value = state.courts.length;
+
+playersEl.ondrop = queueEl.ondrop = nextEl.ondrop = drop;
+playersEl.ondragover = queueEl.ondragover = nextEl.ondragover = allowDrop;
 
 function save() {
   localStorage.setItem('badmintonState', JSON.stringify(state));
@@ -25,15 +30,50 @@ function makePlayer(name, loc, idx1, idx2) {
   div.dataset.index1 = idx1;
   if (idx2 !== undefined) div.dataset.index2 = idx2;
   div.ondragstart = drag;
+  if (loc === 'players' || loc === 'queue') {
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'select';
+    cb.dataset.index = idx1;
+    cb.onclick = e => e.stopPropagation();
+    div.prepend(cb);
+  }
   return div;
 }
 
 function render() {
-  queueEl.innerHTML = '<h3>Queue</h3>';
-  state.players.forEach((p, i) => queueEl.appendChild(makePlayer(p, 'players', i)));
+  playersEl.innerHTML = '<h3>Players</h3>';
+  state.players.forEach((p, i) => playersEl.appendChild(makePlayer(p, 'players', i)));
+  const toQueueBtn = document.createElement('button');
+  toQueueBtn.id = 'toQueueBtn';
+  toQueueBtn.textContent = 'To Queue';
+  playersEl.appendChild(toQueueBtn);
+  toQueueBtn.onclick = () => {
+    const selected = Array.from(playersEl.querySelectorAll('input.select:checked'))
+      .map(cb => parseInt(cb.dataset.index, 10)).sort((a, b) => b - a);
+    selected.forEach(idx => state.queue.push(state.players.splice(idx, 1)[0]));
+    save();
+    render();
+  };
 
-  stagingEl.innerHTML = '<h3>Staging</h3>';
-  state.staging.forEach((p, i) => stagingEl.appendChild(makePlayer(p, 'staging', i)));
+  queueEl.innerHTML = '<h3>Queue</h3>';
+  state.queue.forEach((p, i) => queueEl.appendChild(makePlayer(p, 'queue', i)));
+  const toNextBtn = document.createElement('button');
+  toNextBtn.id = 'toNextBtn';
+  toNextBtn.textContent = 'Next Game';
+  queueEl.appendChild(toNextBtn);
+  toNextBtn.onclick = () => {
+    const selected = Array.from(queueEl.querySelectorAll('input.select:checked'))
+      .map(cb => parseInt(cb.dataset.index, 10)).sort((a, b) => b - a);
+    selected.forEach(idx => {
+      if (state.nextGame.length < 4) state.nextGame.push(state.queue.splice(idx, 1)[0]);
+    });
+    save();
+    render();
+  };
+
+  nextEl.innerHTML = '<h3>Next Game</h3>';
+  state.nextGame.forEach((p, i) => nextEl.appendChild(makePlayer(p, 'next', i)));
 
   courtsEl.innerHTML = '';
   state.courts.forEach((court, i) => {
@@ -42,8 +82,23 @@ function render() {
     div.dataset.court = i;
     div.ondrop = drop;
     div.ondragover = allowDrop;
-    div.innerHTML = `<div class="court-title">Court ${i + 1}</div>`;
+    div.innerHTML = `<div class="court-title">Court ${i + 1} <button class="in">In</button> <button class="out">Out</button></div>`;
     court.forEach((p, j) => div.appendChild(makePlayer(p, 'courts', i, j)));
+    const inBtn = div.querySelector('.in');
+    const outBtn = div.querySelector('.out');
+    inBtn.onclick = () => {
+      if (state.courts[i].length === 0 && state.nextGame.length) {
+        state.courts[i] = state.nextGame.splice(0, 4);
+        save();
+        render();
+      }
+    };
+    outBtn.onclick = () => {
+      state.queue.push(...state.courts[i]);
+      state.courts[i] = [];
+      save();
+      render();
+    };
     courtsEl.appendChild(div);
   });
 }
@@ -66,20 +121,24 @@ function drop(e) {
   let name;
   if (data.location === 'players') {
     name = state.players.splice(data.index1, 1)[0];
-  } else if (data.location === 'staging') {
-    name = state.staging.splice(data.index1, 1)[0];
+  } else if (data.location === 'queue') {
+    name = state.queue.splice(data.index1, 1)[0];
+  } else if (data.location === 'next') {
+    name = state.nextGame.splice(data.index1, 1)[0];
   } else if (data.location === 'courts') {
     name = state.courts[data.index1].splice(data.index2, 1)[0];
   }
 
   const target = e.currentTarget;
-  if (target.id === 'queue') {
+  if (target.id === 'players') {
     state.players.push(name);
-  } else if (target.id === 'staging') {
-    if (state.staging.length < 4) state.staging.push(name); else state.players.push(name);
+  } else if (target.id === 'queue') {
+    state.queue.push(name);
+  } else if (target.id === 'nextGame') {
+    if (state.nextGame.length < 4) state.nextGame.push(name); else state.queue.push(name);
   } else if (target.classList.contains('court')) {
     const idx = target.dataset.court;
-    if (state.courts[idx].length < 4) state.courts[idx].push(name); else state.players.push(name);
+    if (state.courts[idx].length < 4) state.courts[idx].push(name); else state.queue.push(name);
   }
   save();
   render();

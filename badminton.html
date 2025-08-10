@@ -7,10 +7,10 @@
 <title>Badminton Session Manager</title>
 <style>
 body {font-family: Arial, sans-serif; margin:0; padding:1rem;}
-#queue, #staging, .court {border:1px solid #ccc; min-height:60px; padding:0.5rem; margin-bottom:1rem;}
-.player {background:#e0e0e0; padding:0.25rem 0.5rem; margin:0.25rem; cursor:grab;}
-.container {display:flex; flex-wrap:wrap; gap:1rem;}
-.court {flex:1 1 45%;}
+#players, #queue, #nextGame, .court {border:1px solid #ccc; min-height:60px; padding:0.5rem; margin-bottom:1rem;}
+.player {background:#e0e0e0; padding:0.25rem 0.5rem; margin:0.25rem; cursor:grab; display:flex; align-items:center; gap:0.25rem;}
+.container {display:flex; gap:1rem;}
+.court {flex:1;}
 .court-title {font-weight:bold; margin-bottom:0.5rem;}
 </style>
 </head>
@@ -28,13 +28,16 @@ body {font-family: Arial, sans-serif; margin:0; padding:1rem;}
 <input id="playerName" placeholder="Player name">
 <button id="addPlayerBtn">Add Player</button>
 </div>
+<div id="players" ondrop="drop(event)" ondragover="allowDrop(event)">
+<h3>Players</h3>
+</div>
 <div id="queue" ondrop="drop(event)" ondragover="allowDrop(event)">
 <h3>Queue</h3>
 </div>
-<div class="container" id="courts"></div>
-<div id="staging" ondrop="drop(event)" ondragover="allowDrop(event)">
-<h3>Staging</h3>
+<div id="nextGame" ondrop="drop(event)" ondragover="allowDrop(event)">
+<h3>Next Game</h3>
 </div>
+<div class="container" id="courts"></div>
 <script src="badminton.js"></script>
 <script>
 if ('serviceWorker' in navigator) {
