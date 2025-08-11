@@ -2,8 +2,6 @@ const playersEl = document.getElementById('players');
 const queueEl = document.getElementById('queue');
 const nextEl = document.getElementById('nextGame');
 const courtsEl = document.getElementById('courts');
-const playerInput = document.getElementById('playerName');
-const addBtn = document.getElementById('addPlayerBtn');
 const courtCountSelect = document.getElementById('courtCount');
 
 let state = JSON.parse(localStorage.getItem('badmintonState') || '{}');
@@ -21,10 +19,9 @@ function save() {
   localStorage.setItem('badmintonState', JSON.stringify(state));
 }
 
-function makePlayer(name, loc, idx1, idx2) {
+function makePlayer(name, loc, idx1, idx2, label) {
   const div = document.createElement('div');
   div.className = 'player';
-  div.textContent = name;
   div.draggable = true;
   div.dataset.location = loc;
   div.dataset.index1 = idx1;
@@ -36,13 +33,47 @@ function makePlayer(name, loc, idx1, idx2) {
     cb.className = 'select';
     cb.dataset.index = idx1;
     cb.onclick = e => e.stopPropagation();
-    div.prepend(cb);
+    div.appendChild(cb);
+  }
+  const span = document.createElement('span');
+  span.textContent = label || name;
+  div.appendChild(span);
+  if (loc === 'players') {
+    const del = document.createElement('button');
+    del.textContent = 'x';
+    del.className = 'delete';
+    del.onclick = e => {
+      e.stopPropagation();
+      state.players.splice(idx1, 1);
+      save();
+      render();
+    };
+    div.appendChild(del);
   }
   return div;
 }
 
 function render() {
   playersEl.innerHTML = '<h3>Players</h3>';
+  const addDiv = document.createElement('div');
+  const playerInput = document.createElement('input');
+  playerInput.id = 'playerName';
+  playerInput.placeholder = 'Player name';
+  const addBtn = document.createElement('button');
+  addBtn.id = 'addPlayerBtn';
+  addBtn.textContent = 'Add Player';
+  addDiv.appendChild(playerInput);
+  addDiv.appendChild(addBtn);
+  playersEl.appendChild(addDiv);
+  addBtn.onclick = () => {
+    const name = playerInput.value.trim();
+    if (name) {
+      state.players.push(name);
+      playerInput.value = '';
+      save();
+      render();
+    }
+  };
   state.players.forEach((p, i) => playersEl.appendChild(makePlayer(p, 'players', i)));
   const toQueueBtn = document.createElement('button');
   toQueueBtn.id = 'toQueueBtn';
@@ -57,7 +88,7 @@ function render() {
   };
 
   queueEl.innerHTML = '<h3>Queue</h3>';
-  state.queue.forEach((p, i) => queueEl.appendChild(makePlayer(p, 'queue', i)));
+  state.queue.forEach((p, i) => queueEl.appendChild(makePlayer(p, 'queue', i, undefined, `${i + 1}. ${p}`)));
   const toNextBtn = document.createElement('button');
   toNextBtn.id = 'toNextBtn';
   toNextBtn.textContent = 'Next Game';
@@ -143,16 +174,6 @@ function drop(e) {
   save();
   render();
 }
-
-addBtn.onclick = () => {
-  const name = playerInput.value.trim();
-  if (name) {
-    state.players.push(name);
-    playerInput.value = '';
-    save();
-    render();
-  }
-};
 
 courtCountSelect.onchange = () => {
   let n = parseInt(courtCountSelect.value, 10);
