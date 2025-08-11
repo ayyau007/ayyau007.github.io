@@ -3,11 +3,13 @@ const queueEl = document.getElementById('queue');
 const nextEl = document.getElementById('nextGame');
 const courtsEl = document.getElementById('courts');
 const courtCountSelect = document.getElementById('courtCount');
+const endSessionBtn = document.getElementById('endSession');
 
+let pool = JSON.parse(localStorage.getItem('playerPool') || '[]');
 let state = JSON.parse(localStorage.getItem('badmintonState') || '{}');
-if (!state.players) state.players = [];
-if (!state.queue) { state.queue = state.players; state.players = []; }
-if (!state.nextGame) { state.nextGame = state.staging || []; delete state.staging; }
+if (!state.players) state.players = [...pool];
+if (!state.queue) state.queue = [];
+if (!state.nextGame) state.nextGame = [];
 if (!state.courts) state.courts = [[], []]; // default 2 courts
 
 courtCountSelect.value = state.courts.length;
@@ -17,6 +19,7 @@ playersEl.ondragover = queueEl.ondragover = nextEl.ondragover = allowDrop;
 
 function save() {
   localStorage.setItem('badmintonState', JSON.stringify(state));
+  localStorage.setItem('playerPool', JSON.stringify(pool));
 }
 
 function makePlayer(name, loc, idx1, idx2, label) {
@@ -44,7 +47,9 @@ function makePlayer(name, loc, idx1, idx2, label) {
     del.className = 'delete';
     del.onclick = e => {
       e.stopPropagation();
-      state.players.splice(idx1, 1);
+      const removed = state.players.splice(idx1, 1)[0];
+      const pIdx = pool.indexOf(removed);
+      if (pIdx !== -1) pool.splice(pIdx, 1);
       save();
       render();
     };
@@ -62,17 +67,44 @@ function render() {
   const addBtn = document.createElement('button');
   addBtn.id = 'addPlayerBtn';
   addBtn.textContent = 'Add Player';
+  const importBtn = document.createElement('button');
+  importBtn.id = 'importPlayersBtn';
+  importBtn.textContent = 'Import Players';
+  const importInput = document.createElement('input');
+  importInput.type = 'file';
+  importInput.accept = 'text/plain';
+  importInput.style.display = 'none';
   addDiv.appendChild(playerInput);
   addDiv.appendChild(addBtn);
+  addDiv.appendChild(importBtn);
   playersEl.appendChild(addDiv);
+  playersEl.appendChild(importInput);
   addBtn.onclick = () => {
     const name = playerInput.value.trim();
     if (name) {
-      state.players.push(name);
+      if (!pool.includes(name)) pool.push(name);
+      if (!state.players.includes(name) && !state.queue.includes(name) && !state.nextGame.includes(name) && !state.courts.some(c => c.includes(name))) {
+        state.players.push(name);
+      }
       playerInput.value = '';
       save();
       render();
     }
+  };
+  importBtn.onclick = () => importInput.click();
+  importInput.onchange = async () => {
+    const file = importInput.files[0];
+    if (!file) return;
+    const text = await file.text();
+    text.split(/\r?\n/).map(s => s.trim()).filter(Boolean).forEach(n => {
+      if (!pool.includes(n)) pool.push(n);
+      if (!state.players.includes(n) && !state.queue.includes(n) && !state.nextGame.includes(n) && !state.courts.some(c => c.includes(n))) {
+        state.players.push(n);
+      }
+    });
+    importInput.value = '';
+    save();
+    render();
   };
   state.players.forEach((p, i) => playersEl.appendChild(makePlayer(p, 'players', i)));
   const toQueueBtn = document.createElement('button');
@@ -184,3 +216,12 @@ courtCountSelect.onchange = () => {
 };
 
 render();
+
+endSessionBtn.onclick = () => {
+  state.players = [...pool];
+  state.queue = [];
+  state.nextGame = [];
+  state.courts = state.courts.map(() => []);
+  save();
+  render();
+};
