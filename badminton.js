@@ -190,6 +190,17 @@ function makePlayer(name, loc, idx1, idx2, label) {
       }
     };
     div.appendChild(nextBtn);
+  } else if (loc === 'next') {
+    const returnBtn = document.createElement('button');
+    returnBtn.textContent = 'Return to Queue';
+    returnBtn.className = 'returnQueue';
+    returnBtn.onclick = e => {
+      e.stopPropagation();
+      state.queue.unshift(state.nextGame.splice(idx1, 1)[0]);
+      save();
+      render();
+    };
+    div.appendChild(returnBtn);
   }
   return div;
 }
@@ -343,6 +354,7 @@ function drag(e) {
 
 function drop(e) {
   e.preventDefault();
+  removeDragPreview();
   const data = JSON.parse(e.dataTransfer.getData('text/plain'));
   const srcIdx1 = data.index1 !== undefined ? parseInt(data.index1, 10) : undefined;
   const srcIdx2 = data.index2 !== undefined ? parseInt(data.index2, 10) : undefined;
