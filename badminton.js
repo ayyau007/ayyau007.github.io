@@ -181,27 +181,53 @@ function drag(e) {
 function drop(e) {
   e.preventDefault();
   const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+  const srcIdx1 = data.index1 !== undefined ? parseInt(data.index1, 10) : undefined;
+  const srcIdx2 = data.index2 !== undefined ? parseInt(data.index2, 10) : undefined;
   let name;
   if (data.location === 'players') {
-    name = state.players.splice(data.index1, 1)[0];
+    name = state.players.splice(srcIdx1, 1)[0];
   } else if (data.location === 'queue') {
-    name = state.queue.splice(data.index1, 1)[0];
+    name = state.queue.splice(srcIdx1, 1)[0];
   } else if (data.location === 'next') {
-    name = state.nextGame.splice(data.index1, 1)[0];
+    name = state.nextGame.splice(srcIdx1, 1)[0];
   } else if (data.location === 'courts') {
-    name = state.courts[data.index1].splice(data.index2, 1)[0];
+    name = state.courts[srcIdx1].splice(srcIdx2, 1)[0];
   }
 
-  const target = e.currentTarget;
-  if (target.id === 'players') {
-    state.players.push(name);
-  } else if (target.id === 'queue') {
-    state.queue.push(name);
-  } else if (target.id === 'nextGame') {
-    if (state.nextGame.length < 4) state.nextGame.push(name); else state.queue.push(name);
-  } else if (target.classList.contains('court')) {
-    const idx = target.dataset.court;
-    if (state.courts[idx].length < 4) state.courts[idx].push(name); else state.queue.push(name);
+  const container = e.currentTarget;
+  const players = Array.from(container.querySelectorAll('.player'));
+  const dropTarget = e.target.closest('.player');
+  let dropIndex = players.length;
+  if (dropTarget && dropTarget.parentElement === container) {
+    dropIndex = players.indexOf(dropTarget);
+  }
+
+  const sameContainer =
+    (data.location === 'players' && container.id === 'players') ||
+    (data.location === 'queue' && container.id === 'queue') ||
+    (data.location === 'next' && container.id === 'nextGame') ||
+    (data.location === 'courts' && container.classList.contains('court') && parseInt(container.dataset.court, 10) === srcIdx1);
+
+  const sourceIndex = data.location === 'courts' ? srcIdx2 : srcIdx1;
+  if (sameContainer && dropIndex > sourceIndex) dropIndex--;
+
+  if (container.id === 'players') {
+    state.players.splice(dropIndex, 0, name);
+  } else if (container.id === 'queue') {
+    state.queue.splice(dropIndex, 0, name);
+  } else if (container.id === 'nextGame') {
+    if (state.nextGame.length < 4) {
+      state.nextGame.splice(dropIndex, 0, name);
+    } else {
+      state.queue.push(name);
+    }
+  } else if (container.classList.contains('court')) {
+    const idx = container.dataset.court;
+    if (state.courts[idx].length < 4) {
+      state.courts[idx].splice(dropIndex, 0, name);
+    } else {
+      state.queue.push(name);
+    }
   }
   save();
   render();
@@ -218,6 +244,13 @@ courtCountSelect.onchange = () => {
 render();
 
 endSessionBtn.onclick = () => {
+  const all = [
+    ...state.players,
+    ...state.queue,
+    ...state.nextGame,
+    ...state.courts.flat()
+  ];
+  pool = Array.from(new Set([...pool, ...all]));
   state.players = [...pool];
   state.queue = [];
   state.nextGame = [];
