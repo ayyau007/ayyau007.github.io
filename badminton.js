@@ -94,6 +94,9 @@ function render() {
   const importBtn = document.createElement('button');
   importBtn.id = 'importPlayersBtn';
   importBtn.textContent = 'Import Players';
+  const exportBtn = document.createElement('button');
+  exportBtn.id = 'exportPlayersBtn';
+  exportBtn.textContent = 'Export Players';
   const importInput = document.createElement('input');
   importInput.type = 'file';
   importInput.accept = 'text/plain';
@@ -101,6 +104,7 @@ function render() {
   addDiv.appendChild(playerInput);
   addDiv.appendChild(addBtn);
   addDiv.appendChild(importBtn);
+  addDiv.appendChild(exportBtn);
   const toQueueBtn = document.createElement('button');
   toQueueBtn.id = 'toQueueBtn';
   toQueueBtn.textContent = 'To Queue';
@@ -134,6 +138,18 @@ function render() {
     save();
     render();
   };
+  exportBtn.onclick = () => {
+    const content = pool.join('\n');
+    const blob = new Blob([content], {type: 'text/plain'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'players.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
   state.players.forEach((p, i) => playersEl.appendChild(makePlayer(p, 'players', i)));
   toQueueBtn.onclick = () => {
     const selected = Array.from(playersEl.querySelectorAll('input.select:checked'))
@@ -144,11 +160,11 @@ function render() {
   };
 
   queueEl.innerHTML = '<h3>Queue</h3>';
-  state.queue.forEach((p, i) => queueEl.appendChild(makePlayer(p, 'queue', i, undefined, `${i + 1}. ${p}`)));
   const toNextBtn = document.createElement('button');
   toNextBtn.id = 'toNextBtn';
   toNextBtn.textContent = 'Next Game';
   queueEl.appendChild(toNextBtn);
+  state.queue.forEach((p, i) => queueEl.appendChild(makePlayer(p, 'queue', i, undefined, `${i + 1}. ${p}`)));
   toNextBtn.onclick = () => {
     const selected = Array.from(queueEl.querySelectorAll('input.select:checked'))
       .map(cb => parseInt(cb.dataset.index, 10)).sort((a, b) => b - a);
