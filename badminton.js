@@ -17,6 +17,62 @@ courtCountSelect.value = state.courts.length;
 playersEl.ondrop = queueEl.ondrop = nextEl.ondrop = drop;
 playersEl.ondragover = queueEl.ondragover = nextEl.ondragover = allowDrop;
 
+let touchDragData = null;
+let touchTimer = null;
+let touchStartX = 0;
+let touchStartY = 0;
+let pendingTouchData = null;
+
+function handleTouchStart(e) {
+  if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+  const el = e.currentTarget;
+  const touch = e.touches[0];
+  touchStartX = touch.clientX;
+  touchStartY = touch.clientY;
+  pendingTouchData = {
+    location: el.dataset.location,
+    index1: el.dataset.index1,
+    index2: el.dataset.index2
+  };
+  touchTimer = setTimeout(() => {
+    touchDragData = pendingTouchData;
+  }, 300);
+}
+
+function handleTouchMove(e) {
+  if (touchTimer) {
+    const touch = e.touches[0];
+    if (Math.abs(touch.clientX - touchStartX) > 10 || Math.abs(touch.clientY - touchStartY) > 10) {
+      clearTimeout(touchTimer);
+      touchTimer = null;
+      pendingTouchData = null;
+    }
+  }
+  if (touchDragData) e.preventDefault();
+}
+
+function handleTouchEnd(e) {
+  clearTimeout(touchTimer);
+  touchTimer = null;
+  if (!touchDragData) {
+    pendingTouchData = null;
+    return;
+  }
+  const touch = e.changedTouches[0];
+  const target = document.elementFromPoint(touch.clientX, touch.clientY);
+  const container = target && target.closest('#players, #queue, #nextGame, .court');
+  if (container) {
+    drop({
+      preventDefault: () => {},
+      currentTarget: container,
+      target,
+      dataTransfer: { getData: () => JSON.stringify(touchDragData) }
+    });
+  }
+  touchDragData = null;
+  pendingTouchData = null;
+}
+
 function save() {
   localStorage.setItem('badmintonState', JSON.stringify(state));
   localStorage.setItem('playerPool', JSON.stringify(pool));
@@ -55,6 +111,7 @@ function makePlayer(name, loc, idx1, idx2, label) {
   div.dataset.index1 = idx1;
   if (idx2 !== undefined) div.dataset.index2 = idx2;
   div.ondragstart = drag;
+  div.addEventListener('touchstart', handleTouchStart, {passive:true});
   if (loc === 'players' || loc === 'queue') {
     const cb = document.createElement('input');
     cb.type = 'checkbox';
@@ -309,6 +366,9 @@ courtCountSelect.onchange = () => {
 
 render();
 window.addEventListener('resize', setPlayerWidths);
+window.addEventListener('touchmove', handleTouchMove, {passive:false});
+window.addEventListener('touchend', handleTouchEnd);
+window.addEventListener('touchcancel', handleTouchEnd);
 
 endSessionBtn.onclick = () => {
   const all = [
