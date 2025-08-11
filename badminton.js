@@ -22,6 +22,7 @@ let touchTimer = null;
 let touchStartX = 0;
 let touchStartY = 0;
 let pendingTouchData = null;
+let dragPreview = null;
 
 function handleTouchStart(e) {
   if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
@@ -36,6 +37,9 @@ function handleTouchStart(e) {
   };
   touchTimer = setTimeout(() => {
     touchDragData = pendingTouchData;
+    const name = el.querySelector('span').textContent;
+    createDragPreview(name);
+    moveDragPreview(touchStartX, touchStartY);
   }, 300);
 }
 
@@ -48,7 +52,11 @@ function handleTouchMove(e) {
       pendingTouchData = null;
     }
   }
-  if (touchDragData) e.preventDefault();
+  if (touchDragData) {
+    const touch = e.touches[0];
+    moveDragPreview(touch.clientX, touch.clientY);
+    e.preventDefault();
+  }
 }
 
 function handleTouchEnd(e) {
@@ -71,11 +79,33 @@ function handleTouchEnd(e) {
   }
   touchDragData = null;
   pendingTouchData = null;
+  removeDragPreview();
 }
 
 function save() {
   localStorage.setItem('badmintonState', JSON.stringify(state));
   localStorage.setItem('playerPool', JSON.stringify(pool));
+}
+
+function createDragPreview(text) {
+  dragPreview = document.createElement('div');
+  dragPreview.className = 'drag-preview';
+  dragPreview.textContent = text;
+  document.body.appendChild(dragPreview);
+}
+
+function moveDragPreview(x, y) {
+  if (dragPreview) {
+    dragPreview.style.left = x + 'px';
+    dragPreview.style.top = y + 'px';
+  }
+}
+
+function removeDragPreview() {
+  if (dragPreview) {
+    document.body.removeChild(dragPreview);
+    dragPreview = null;
+  }
 }
 
 function setPlayerWidths() {
@@ -294,11 +324,21 @@ function allowDrop(e) {
 }
 
 function drag(e) {
+  const text = e.target.querySelector('span').textContent;
+  createDragPreview(text);
+  // hide preview element off-screen for desktop drag image
+  dragPreview.style.left = '-9999px';
+  dragPreview.style.top = '-9999px';
+  e.dataTransfer.setDragImage(dragPreview, 0, 0);
   e.dataTransfer.setData('text/plain', JSON.stringify({
     location: e.target.dataset.location,
     index1: e.target.dataset.index1,
     index2: e.target.dataset.index2
   }));
+  e.target.ondragend = () => {
+    removeDragPreview();
+    e.target.ondragend = null;
+  };
 }
 
 function drop(e) {
