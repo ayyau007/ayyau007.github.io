@@ -42,7 +42,7 @@ function setPlayerWidths() {
       const extra = el.getBoundingClientRect().width - nameWidth;
       if (extra > maxExtra) maxExtra = extra;
     });
-    const total = Math.ceil(maxName + maxExtra);
+    const total = Math.min(Math.ceil(maxName + maxExtra), 300);
     els.forEach(el => (el.style.width = total + 'px'));
   });
 }
