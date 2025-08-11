@@ -23,20 +23,28 @@ function save() {
 }
 
 function setPlayerWidths() {
-  const els = document.querySelectorAll('.player');
-  if (!els.length) return;
-  els.forEach(el => (el.style.width = 'auto'));
-  let maxName = 0;
-  let maxExtra = 0;
-  els.forEach(el => {
-    const span = el.querySelector('span');
-    const nameWidth = span.getBoundingClientRect().width;
-    if (nameWidth > maxName) maxName = nameWidth;
-    const extra = el.getBoundingClientRect().width - nameWidth;
-    if (extra > maxExtra) maxExtra = extra;
+  const containers = [
+    playersEl,
+    queueEl,
+    nextEl,
+    ...document.querySelectorAll('.court')
+  ];
+  containers.forEach(container => {
+    const els = container.querySelectorAll('.player');
+    if (!els.length) return;
+    els.forEach(el => (el.style.width = 'auto'));
+    let maxName = 0;
+    let maxExtra = 0;
+    els.forEach(el => {
+      const span = el.querySelector('span');
+      const nameWidth = span.getBoundingClientRect().width;
+      if (nameWidth > maxName) maxName = nameWidth;
+      const extra = el.getBoundingClientRect().width - nameWidth;
+      if (extra > maxExtra) maxExtra = extra;
+    });
+    const total = Math.ceil(maxName + maxExtra);
+    els.forEach(el => (el.style.width = total + 'px'));
   });
-  const total = Math.ceil(maxName + maxExtra);
-  els.forEach(el => (el.style.width = total + 'px'));
 }
 
 function makePlayer(name, loc, idx1, idx2, label) {
