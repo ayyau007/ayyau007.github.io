@@ -77,6 +77,10 @@ function render() {
   addDiv.appendChild(playerInput);
   addDiv.appendChild(addBtn);
   addDiv.appendChild(importBtn);
+  const toQueueBtn = document.createElement('button');
+  toQueueBtn.id = 'toQueueBtn';
+  toQueueBtn.textContent = 'To Queue';
+  addDiv.appendChild(toQueueBtn);
   playersEl.appendChild(addDiv);
   playersEl.appendChild(importInput);
   addBtn.onclick = () => {
@@ -107,10 +111,6 @@ function render() {
     render();
   };
   state.players.forEach((p, i) => playersEl.appendChild(makePlayer(p, 'players', i)));
-  const toQueueBtn = document.createElement('button');
-  toQueueBtn.id = 'toQueueBtn';
-  toQueueBtn.textContent = 'To Queue';
-  playersEl.appendChild(toQueueBtn);
   toQueueBtn.onclick = () => {
     const selected = Array.from(playersEl.querySelectorAll('input.select:checked'))
       .map(cb => parseInt(cb.dataset.index, 10)).sort((a, b) => b - a);
