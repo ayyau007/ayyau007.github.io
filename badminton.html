@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="manifest" href="badminton-manifest.json">
+<title>Badminton Session Manager</title>
+<style>
+body {font-family: Arial, sans-serif; margin:0; padding:1rem;}
+h1 {font-size:1.5rem; margin:0.5rem 0;}
+#players, #queue, #nextGame, .court {border:1px solid #ccc; min-height:60px; padding:0.5rem; margin-bottom:1rem;}
+#players {background:#fff3cd;}
+#queue {background:#d1ecf1;}
+#nextGame {background:#f8d7da;}
+.court {flex:1; background:#d4edda;}
+.player {background:#e0e0e0; padding:0.25rem 0.5rem; margin:0.25rem; cursor:grab; display:flex; align-items:center; gap:0.25rem; touch-action:none; max-width:300px;}
+.player span {flex:1; min-width:0; max-width:30ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.drag-preview {position:fixed; pointer-events:none; background:#e0e0e0; padding:0.25rem 0.5rem; border:1px solid #999; border-radius:3px; z-index:1000;}
+.container {display:flex; gap:1rem; overflow-x:auto;}
+.court-title {font-weight:bold; margin-bottom:0.5rem;}
+.player button.toQueue, .player button.toNext, .player button.returnQueue {margin-left:auto;}
+.player button.delete {background:none; border:none; cursor:pointer; color:#900;}
+@media (max-width:600px) {
+  body {padding:0.5rem;}
+  .container {gap:0.5rem;}
+}
+</style>
+</head>
+<body>
+<h1>Badminton Session Manager</h1>
+<div>
+<label for="courtCount">Courts:</label>
+<select id="courtCount">
+<option value="2">2</option>
+<option value="3">3</option>
+<option value="4">4</option>
+</select>
+</div>
+<div class="container" id="courts"></div>
+<div id="nextGame" ondrop="drop(event)" ondragover="allowDrop(event)">
+<h3>Next Game</h3>
+</div>
+<div id="queue" ondrop="drop(event)" ondragover="allowDrop(event)">
+<h3>Queue</h3>
+</div>
+<div id="players" ondrop="drop(event)" ondragover="allowDrop(event)">
+<h3>Players</h3>
+</div>
+<button id="endSession">End Session</button>
+<script src="badminton.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js');
+}
+</script>
+</body>
+</html>
