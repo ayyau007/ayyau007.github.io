@@ -42,6 +42,17 @@ function makePlayer(name, loc, idx1, idx2, label) {
   span.textContent = label || name;
   div.appendChild(span);
   if (loc === 'players') {
+    const toQueueBtn = document.createElement('button');
+    toQueueBtn.textContent = 'To Queue';
+    toQueueBtn.className = 'toQueue';
+    toQueueBtn.onclick = e => {
+      e.stopPropagation();
+      state.queue.push(state.players.splice(idx1, 1)[0]);
+      save();
+      render();
+    };
+    div.appendChild(toQueueBtn);
+
     const del = document.createElement('button');
     del.textContent = 'x';
     del.className = 'delete';
@@ -54,6 +65,19 @@ function makePlayer(name, loc, idx1, idx2, label) {
       render();
     };
     div.appendChild(del);
+  } else if (loc === 'queue') {
+    const nextBtn = document.createElement('button');
+    nextBtn.textContent = 'Next Game';
+    nextBtn.className = 'toNext';
+    nextBtn.onclick = e => {
+      e.stopPropagation();
+      if (state.nextGame.length < 4) {
+        state.nextGame.push(state.queue.splice(idx1, 1)[0]);
+        save();
+        render();
+      }
+    };
+    div.appendChild(nextBtn);
   }
   return div;
 }

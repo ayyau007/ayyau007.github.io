@@ -14,9 +14,11 @@ h1 {font-size:1.5rem; margin:0.5rem 0;}
 #nextGame {background:#f8d7da;}
 .court {flex:1; background:#d4edda;}
 .player {background:#e0e0e0; padding:0.25rem 0.5rem; margin:0.25rem; cursor:grab; display:flex; align-items:center; gap:0.25rem;}
+.player span {max-width:30ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;}
 .container {display:flex; gap:1rem;}
 .court-title {font-weight:bold; margin-bottom:0.5rem;}
-.player button.delete {margin-left:auto; background:none; border:none; cursor:pointer; color:#900;}
+.player button.toQueue, .player button.toNext {margin-left:auto;}
+.player button.delete {background:none; border:none; cursor:pointer; color:#900;}
 </style>
 </head>
 <body>
