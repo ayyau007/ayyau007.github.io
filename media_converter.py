@@ -758,6 +758,8 @@ class ComparisonView(tk.Toplevel):
         self.photo_images: Dict[str, Optional[ImageTk.PhotoImage]] = {"source": None, "dest": None}
         self.zoom_var = tk.DoubleVar(value=1.0)
         self._internal_zoom_update = False
+        self._slider_value = self.zoom_var.get()
+        self.scales: Dict[str, float] = {"source": 1.0, "dest": 1.0}
         self.fit_mode = False
         self.fit_scales: Dict[str, float] = {"source": 1.0, "dest": 1.0}
 
@@ -823,6 +825,7 @@ class ComparisonView(tk.Toplevel):
         self.offset_y = 0
         self.fit_mode = False
         self.fit_scales = {"source": 1.0, "dest": 1.0}
+        self.scales = {"source": 1.0, "dest": 1.0}
         for key, path in (("source", entry["source"]), ("dest", entry["dest"])):
             self.images[key] = self._load_image(path)
         self._set_initial_zoom()
@@ -847,7 +850,7 @@ class ComparisonView(tk.Toplevel):
             if img is None:
                 canvas.create_text(canvas.winfo_width() / 2, canvas.winfo_height() / 2, fill="white", text="Preview not available")
                 continue
-            scale = self.fit_scales[key] if self.fit_mode else self.zoom_var.get()
+            scale = self.fit_scales[key] if self.fit_mode else self.scales.get(key, self.zoom_var.get())
             width = int(img.width * scale)
             height = int(img.height * scale)
             resized = img.resize((max(1, width), max(1, height)), Image.LANCZOS)
@@ -874,8 +877,17 @@ class ComparisonView(tk.Toplevel):
     def _on_zoom_change(self, _value: str = "") -> None:
         if self._internal_zoom_update:
             return
+        new_value = self._clamp_scale(self.zoom_var.get())
+        old_value = self._slider_value if self._slider_value else new_value
+        if new_value == old_value:
+            return
         if self.fit_mode:
+            self.scales = dict(self.fit_scales)
             self.fit_mode = False
+        ratio = new_value / old_value if old_value else 1.0
+        for key in self.scales:
+            self.scales[key] = self._clamp_scale(self.scales[key] * ratio)
+        self._slider_value = new_value
         self._render()
 
     def _on_drag_start(self, event: tk.Event) -> None:  # type: ignore[override]
@@ -905,11 +917,13 @@ class ComparisonView(tk.Toplevel):
             scales.append(min(scale_w, scale_h))
         initial = min(scales) if scales else 1.0
         initial = max(0.25, min(initial, 4.0))
+        self.scales = {"source": initial, "dest": initial}
         self._set_zoom_value(initial)
         self.fit_mode = False
 
     def _set_actual_size(self) -> None:
         self.fit_mode = False
+        self.scales = {"source": 1.0, "dest": 1.0}
         self._set_zoom_value(1.0)
         self._render()
 
@@ -932,28 +946,39 @@ class ComparisonView(tk.Toplevel):
         self._zoom_at_point(event, 1.10)
 
     def _zoom_at_point(self, event: tk.Event, factor: float) -> None:  # type: ignore[override]
-        old_scale = self.zoom_var.get()
-        new_scale = min(4.0, max(0.25, old_scale * factor))
         canvas = event.widget
-        if not isinstance(canvas, tk.Canvas) or old_scale <= 0:
+        if not isinstance(canvas, tk.Canvas):
+            return
+        key = self._canvas_key(canvas)
+        if key is None:
             return
         if self.fit_mode:
+            self.scales = dict(self.fit_scales)
             self.fit_mode = False
+        current_scale = self.scales.get(key, 1.0)
+        if current_scale <= 0:
+            return
+        target_scale = self._clamp_scale(current_scale * factor)
+        ratio = target_scale / current_scale if current_scale else 1.0
+        if ratio == 1.0:
+            return
         canvas_width = max(canvas.winfo_width(), 1)
         canvas_height = max(canvas.winfo_height(), 1)
         center_x = canvas_width / 2
         center_y = canvas_height / 2
-        ratio = new_scale / old_scale if old_scale else 1.0
         delta_x = event.x - center_x - self.offset_x
         delta_y = event.y - center_y - self.offset_y
         self.offset_x = -(delta_x) * ratio
         self.offset_y = -(delta_y) * ratio
-        self._set_zoom_value(new_scale)
+        for item in self.scales:
+            self.scales[item] = self._clamp_scale(self.scales[item] * ratio)
+        self._set_zoom_value(self._clamp_scale(self._slider_value * ratio))
         self._render()
 
     def _set_zoom_value(self, value: float) -> None:
         self._internal_zoom_update = True
         self.zoom_var.set(value)
+        self._slider_value = value
         self._internal_zoom_update = False
 
     def _on_canvas_configure(self, _event: tk.Event) -> None:  # type: ignore[override]
@@ -981,6 +1006,16 @@ class ComparisonView(tk.Toplevel):
         for key in ("source", "dest"):
             scales.setdefault(key, first)
         return scales
+
+    def _clamp_scale(self, scale: float) -> float:
+        return max(0.25, min(scale, 4.0))
+
+    def _canvas_key(self, canvas: tk.Canvas) -> Optional[str]:
+        if canvas is self.left_canvas:
+            return "source"
+        if canvas is self.right_canvas:
+            return "dest"
+        return None
 
 
 def main() -> None:
