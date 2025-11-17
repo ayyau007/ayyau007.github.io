@@ -3,6 +3,7 @@
 import json
 import os
 import queue
+import shutil
 import subprocess
 import threading
 import time
@@ -39,6 +40,11 @@ class MediaConverterApp:
         self.log_queue: "queue.Queue[str]" = queue.Queue()
         self.target_folder: Optional[str] = None
 
+        self.total_files_var = tk.IntVar(value=0)
+        self.processed_images_var = tk.IntVar(value=0)
+        self.processed_videos_var = tk.IntVar(value=0)
+        self.total_processed_var = tk.IntVar(value=0)
+
         self._build_ui()
         self._poll_log_queue()
 
@@ -67,7 +73,7 @@ class MediaConverterApp:
         self.enable_video_var = tk.BooleanVar(value=True)
 
         image_frame = ttk.LabelFrame(options_frame, text="Image Conversion", padding=10)
-        image_frame.pack(fill=tk.X, pady=5)
+        image_frame.grid(row=0, column=0, sticky=tk.NSEW, padx=(0, 10))
         ttk.Checkbutton(image_frame, text="Enable image conversion", variable=self.enable_image_var).grid(row=0, column=0, columnspan=2, sticky=tk.W)
         ttk.Label(image_frame, text="Original format").grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
         image_source_options = ["All Images"] + [fmt.upper() for fmt in IMAGE_FORMAT_CHOICES]
@@ -83,7 +89,7 @@ class MediaConverterApp:
             image_frame.columnconfigure(i, weight=1)
 
         video_frame = ttk.LabelFrame(options_frame, text="Video Conversion", padding=10)
-        video_frame.pack(fill=tk.X, pady=5)
+        video_frame.grid(row=0, column=1, sticky=tk.NSEW)
         ttk.Checkbutton(video_frame, text="Enable video conversion", variable=self.enable_video_var).grid(row=0, column=0, columnspan=2, sticky=tk.W)
         ttk.Label(video_frame, text="Original format").grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
         video_source_options = ["All Videos"] + [fmt.upper() for fmt in VIDEO_FORMAT_CHOICES]
@@ -98,8 +104,20 @@ class MediaConverterApp:
         for i in range(2):
             video_frame.columnconfigure(i, weight=1)
 
-        self.skip_smaller_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(options_frame, text="Skip files that are smaller than the target long side", variable=self.skip_smaller_var).pack(anchor=tk.W, pady=5)
+        options_frame.columnconfigure(0, weight=1)
+        options_frame.columnconfigure(1, weight=1)
+
+        self.small_file_action_var = tk.StringVar(value="Skip")
+        small_frame = ttk.LabelFrame(main, text="Files that are smaller than long side", padding=10)
+        small_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(small_frame, text="Action").grid(row=0, column=0, sticky=tk.W)
+        ttk.Combobox(
+            small_frame,
+            textvariable=self.small_file_action_var,
+            state="readonly",
+            values=["Skip", "Just Copy"],
+        ).grid(row=0, column=1, sticky=tk.W, padx=(10, 0))
+        small_frame.columnconfigure(1, weight=1)
 
         # Target folder
         target_frame = ttk.LabelFrame(main, text="Target", padding=10)
@@ -116,6 +134,20 @@ class MediaConverterApp:
         self.compare_btn = ttk.Button(action_frame, text="Open Comparison View", command=self.open_comparison, state=tk.DISABLED)
         self.compare_btn.pack(side=tk.LEFT, padx=10)
         ttk.Button(action_frame, text="Load mapping file", command=self.load_mapping_file).pack(side=tk.LEFT)
+        ttk.Button(action_frame, text="Close", command=self.root.destroy).pack(side=tk.RIGHT)
+
+        processing_frame = ttk.LabelFrame(main, text="Processing", padding=10)
+        processing_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(processing_frame, text="Total files").grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(processing_frame, textvariable=self.total_files_var).grid(row=0, column=1, sticky=tk.W, padx=(5, 15))
+        ttk.Label(processing_frame, text="Processed Image").grid(row=0, column=2, sticky=tk.W)
+        ttk.Label(processing_frame, textvariable=self.processed_images_var).grid(row=0, column=3, sticky=tk.W, padx=(5, 15))
+        ttk.Label(processing_frame, text="Processed Video").grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
+        ttk.Label(processing_frame, textvariable=self.processed_videos_var).grid(row=1, column=1, sticky=tk.W, padx=(5, 15), pady=(5, 0))
+        ttk.Label(processing_frame, text="Total Processed").grid(row=1, column=2, sticky=tk.W, pady=(5, 0))
+        ttk.Label(processing_frame, textvariable=self.total_processed_var).grid(row=1, column=3, sticky=tk.W, padx=(5, 15), pady=(5, 0))
+        for col in range(4):
+            processing_frame.columnconfigure(col, weight=1)
 
         # Log window
         log_frame = ttk.LabelFrame(main, text="Messages", padding=5)
@@ -203,7 +235,7 @@ class MediaConverterApp:
                 "output_format": video_output,
                 "target_long_side": video_long_side,
             },
-            "skip_smaller": self.skip_smaller_var.get(),
+            "small_file_action": self._small_file_action(),
         }
         self.convert_btn.configure(state=tk.DISABLED)
         threading.Thread(target=self._run_conversion, args=(job,), daemon=True).start()
@@ -239,6 +271,7 @@ class MediaConverterApp:
         image_formats = job["image"]["source_formats"] if job["image"]["enabled"] else []
         video_formats = job["video"]["source_formats"] if job["video"]["enabled"] else []
         files = self._gather_files(image_formats, video_formats)
+        self._update_processing_counts(total=len(files), processed_image=0, processed_video=0)
         if not files:
             self._log("No files matched the requested formats.")
             self._finish_conversion()
@@ -246,20 +279,52 @@ class MediaConverterApp:
         mapping: List[Dict[str, str]] = []
         skipped = 0
         converted = 0
+        processed_images = 0
+        processed_videos = 0
+        total_files = len(files)
         for source, base_dir, media_type in files:
             rel_path = os.path.relpath(source, base_dir)
             config = job[media_type]
             dest_path = self._destination_path(rel_path, config["output_format"])
-            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
             try:
-                if job["skip_smaller"] and self._is_smaller_than_target(source, config["target_long_side"]):
-                    skipped += 1
-                    self._log(f"Skipping (smaller): {source}")
-                    continue
+                smaller = self._is_smaller_than_target(source, config["target_long_side"])
+                if smaller:
+                    action = job.get("small_file_action", "skip")
+                    if action == "skip":
+                        skipped += 1
+                        self._log(f"Skipping (smaller): {source}")
+                        continue
+                    if action == "copy":
+                        copy_dest = self._copy_destination_path(rel_path)
+                        os.makedirs(os.path.dirname(copy_dest), exist_ok=True)
+                        shutil.copy2(source, copy_dest)
+                        mapping.append({"source": source, "dest": copy_dest})
+                        self._log(f"Copied (smaller): {source} -> {copy_dest}")
+                        converted += 1
+                        if media_type == "image":
+                            processed_images += 1
+                        else:
+                            processed_videos += 1
+                        self._update_processing_counts(
+                            total=total_files,
+                            processed_image=processed_images,
+                            processed_video=processed_videos,
+                        )
+                        continue
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
                 self._convert_file(source, dest_path, media_type, config)
                 converted += 1
                 mapping.append({"source": source, "dest": dest_path})
                 self._log(f"Converted: {source} -> {dest_path}")
+                if media_type == "image":
+                    processed_images += 1
+                else:
+                    processed_videos += 1
+                self._update_processing_counts(
+                    total=total_files,
+                    processed_image=processed_images,
+                    processed_video=processed_videos,
+                )
             except Exception as exc:  # pylint: disable=broad-except
                 self._log(f"Failed to convert {source}: {exc}")
         if mapping:
@@ -338,6 +403,11 @@ class MediaConverterApp:
         extension = output_format if output_format.startswith('.') else f'.{output_format}'
         filename = f"{rel_without_ext}{extension}"
         return os.path.join(self.target_folder, filename)
+
+    def _copy_destination_path(self, relative_path: str) -> str:
+        if not self.target_folder:
+            raise RuntimeError("Target folder not set")
+        return os.path.join(self.target_folder, relative_path)
 
     def _is_smaller_than_target(self, path: str, target_long_side: int) -> bool:
         ext = os.path.splitext(path)[1].lower()
@@ -426,7 +496,7 @@ class MediaConverterApp:
             "target_folder": self.target_folder,
             "image_config": self._serialize_config(job["image"]),
             "video_config": self._serialize_config(job["video"]),
-            "skip_smaller": job["skip_smaller"],
+            "small_file_action": job["small_file_action"],
             "entries": mapping,
         }
         path = Path(self.target_folder) / "conversion_map.json"
@@ -445,6 +515,29 @@ class MediaConverterApp:
         timestamp = time.strftime("%H:%M:%S")
         self.log_queue.put(f"[{timestamp}] {message}")
 
+    def _update_processing_counts(
+        self,
+        *,
+        total: Optional[int] = None,
+        processed_image: Optional[int] = None,
+        processed_video: Optional[int] = None,
+    ) -> None:
+        def update() -> None:
+            if total is not None:
+                self.total_files_var.set(total)
+            if processed_image is not None:
+                self.processed_images_var.set(processed_image)
+            if processed_video is not None:
+                self.processed_videos_var.set(processed_video)
+            total_processed = self.processed_images_var.get() + self.processed_videos_var.get()
+            self.total_processed_var.set(total_processed)
+
+        self.root.after(0, update)
+
+    def _small_file_action(self) -> str:
+        value = (self.small_file_action_var.get() or "").strip().lower()
+        return "copy" if "copy" in value else "skip"
+
 
 class ComparisonView(tk.Toplevel):
     def __init__(self, master: tk.Tk, mapping: Sequence[Dict[str, str]]):
@@ -453,12 +546,15 @@ class ComparisonView(tk.Toplevel):
         self.geometry("1200x650")
         self.mapping = list(mapping)
         self.current_index = 0
-        self.scale = 1.0
         self.offset_x = 0
         self.offset_y = 0
         self._drag_start: Optional[Tuple[int, int]] = None
         self.images: Dict[str, Optional[Image.Image]] = {"source": None, "dest": None}
         self.photo_images: Dict[str, Optional[ImageTk.PhotoImage]] = {"source": None, "dest": None}
+        self.zoom_vars = {
+            "source": tk.DoubleVar(value=1.0),
+            "dest": tk.DoubleVar(value=1.0),
+        }
 
         self._build_ui()
         if self.mapping:
@@ -490,15 +586,31 @@ class ComparisonView(tk.Toplevel):
         for canvas in (self.left_canvas, self.right_canvas):
             canvas.bind("<ButtonPress-1>", self._on_drag_start)
             canvas.bind("<B1-Motion>", self._on_drag)
+            canvas.bind("<Configure>", lambda _event: self._render())
 
         controls = ttk.Frame(viewer_frame)
         controls.pack(fill=tk.X, pady=5)
         ttk.Button(controls, text="Previous", command=self.show_previous).pack(side=tk.LEFT)
         ttk.Button(controls, text="Next", command=self.show_next).pack(side=tk.LEFT, padx=5)
-        ttk.Label(controls, text="Zoom").pack(side=tk.LEFT, padx=(20, 5))
-        self.zoom_var = tk.DoubleVar(value=1.0)
-        zoom_slider = ttk.Scale(controls, from_=0.25, to=4.0, orient=tk.HORIZONTAL, variable=self.zoom_var, command=self._on_zoom_change)
-        zoom_slider.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Label(controls, text="Source Zoom").pack(side=tk.LEFT, padx=(20, 5))
+        ttk.Scale(
+            controls,
+            from_=0.25,
+            to=4.0,
+            orient=tk.HORIZONTAL,
+            variable=self.zoom_vars["source"],
+            command=lambda _v: self._on_zoom_change("source"),
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Label(controls, text="Converted Zoom").pack(side=tk.LEFT, padx=(20, 5))
+        ttk.Scale(
+            controls,
+            from_=0.25,
+            to=4.0,
+            orient=tk.HORIZONTAL,
+            variable=self.zoom_vars["dest"],
+            command=lambda _v: self._on_zoom_change("dest"),
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(controls, text="Close", command=self.destroy).pack(side=tk.RIGHT)
 
     def _load_pair(self, index: int) -> None:
         if not (0 <= index < len(self.mapping)):
@@ -508,11 +620,11 @@ class ComparisonView(tk.Toplevel):
         self.listbox.selection_clear(0, tk.END)
         self.listbox.selection_set(index)
         self.listbox.see(index)
-        self.scale = self.zoom_var.get()
         self.offset_x = 0
         self.offset_y = 0
         for key, path in (("source", entry["source"]), ("dest", entry["dest"])):
             self.images[key] = self._load_image(path)
+        self._set_initial_zoom()
         self._render()
 
     def _load_image(self, path: str) -> Optional[Image.Image]:
@@ -534,8 +646,9 @@ class ComparisonView(tk.Toplevel):
             if img is None:
                 canvas.create_text(canvas.winfo_width() / 2, canvas.winfo_height() / 2, fill="white", text="Preview not available")
                 continue
-            width = int(img.width * self.scale)
-            height = int(img.height * self.scale)
+            scale = self.zoom_vars[key].get()
+            width = int(img.width * scale)
+            height = int(img.height * scale)
             resized = img.resize((max(1, width), max(1, height)), Image.LANCZOS)
             photo = ImageTk.PhotoImage(resized)
             self.photo_images[key] = photo
@@ -557,8 +670,7 @@ class ComparisonView(tk.Toplevel):
         new_index = (self.current_index + 1) % len(self.mapping)
         self._load_pair(new_index)
 
-    def _on_zoom_change(self, _value: str) -> None:
-        self.scale = self.zoom_var.get()
+    def _on_zoom_change(self, _key: str) -> None:
         self._render()
 
     def _on_drag_start(self, event: tk.Event) -> None:  # type: ignore[override]
@@ -573,6 +685,23 @@ class ComparisonView(tk.Toplevel):
         self.offset_y += dy
         self._drag_start = (event.x, event.y)
         self._render()
+
+    def _set_initial_zoom(self) -> None:
+        self.update_idletasks()
+        scales: List[float] = []
+        for canvas, key in ((self.left_canvas, "source"), (self.right_canvas, "dest")):
+            img = self.images[key]
+            if img is None or img.width == 0 or img.height == 0:
+                continue
+            canvas_width = max(canvas.winfo_width(), 1)
+            canvas_height = max(canvas.winfo_height(), 1)
+            scale_w = canvas_width / img.width
+            scale_h = canvas_height / img.height
+            scales.append(min(scale_w, scale_h))
+        initial = min(scales) if scales else 1.0
+        initial = max(0.25, min(initial, 4.0))
+        self.zoom_vars["source"].set(initial)
+        self.zoom_vars["dest"].set(initial)
 
 
 def main() -> None:
