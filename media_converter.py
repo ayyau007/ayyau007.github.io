@@ -30,6 +30,7 @@ class SourceItem:
 
 IMAGE_FORMATS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp", ".heic"}
 VIDEO_FORMATS = {".mp4", ".mov", ".avi", ".mkv", ".wmv", ".flv", ".webm"}
+SHIFT_MASK = 0x0001
 IMAGE_FORMAT_CHOICES = sorted({fmt.lstrip(".") for fmt in IMAGE_FORMATS})
 VIDEO_FORMAT_CHOICES = sorted({fmt.lstrip(".") for fmt in VIDEO_FORMATS})
 RESOLUTION_CHOICES = ["480", "720", "1080", "1440", "2160", "4320"]
@@ -754,6 +755,9 @@ class ComparisonView(tk.Toplevel):
         self.offset_x = 0
         self.offset_y = 0
         self._drag_start: Optional[Tuple[int, int]] = None
+        self._selection_start: Optional[Tuple[int, int]] = None
+        self._selection_canvas: Optional[tk.Canvas] = None
+        self._selection_rect: Optional[int] = None
         self.images: Dict[str, Optional[Image.Image]] = {"source": None, "dest": None}
         self.photo_images: Dict[str, Optional[ImageTk.PhotoImage]] = {"source": None, "dest": None}
         self.zoom_var = tk.DoubleVar(value=1.0)
@@ -793,6 +797,7 @@ class ComparisonView(tk.Toplevel):
         for canvas in (self.left_canvas, self.right_canvas):
             canvas.bind("<ButtonPress-1>", self._on_drag_start)
             canvas.bind("<B1-Motion>", self._on_drag)
+            canvas.bind("<ButtonRelease-1>", self._on_drag_end)
             canvas.bind("<Double-Button-1>", self._on_double_click)
             canvas.bind("<Configure>", self._on_canvas_configure)
 
@@ -891,9 +896,17 @@ class ComparisonView(tk.Toplevel):
         self._render()
 
     def _on_drag_start(self, event: tk.Event) -> None:  # type: ignore[override]
+        canvas = event.widget
+        if isinstance(canvas, tk.Canvas) and self._is_shift_pressed(event):
+            self._start_selection(canvas, event.x, event.y)
+            return
         self._drag_start = (event.x, event.y)
 
     def _on_drag(self, event: tk.Event) -> None:  # type: ignore[override]
+        canvas = event.widget
+        if isinstance(canvas, tk.Canvas) and self._selection_canvas is canvas and self._selection_start:
+            self._update_selection(canvas, event.x, event.y)
+            return
         if not self._drag_start:
             return
         dx = event.x - self._drag_start[0]
@@ -902,6 +915,17 @@ class ComparisonView(tk.Toplevel):
         self.offset_y += dy
         self._drag_start = (event.x, event.y)
         self._render()
+
+    def _on_drag_end(self, event: tk.Event) -> None:  # type: ignore[override]
+        canvas = event.widget
+        if self._selection_canvas is not None:
+            if canvas is self._selection_canvas and isinstance(canvas, tk.Canvas):
+                self._finish_selection(canvas, event.x, event.y)
+            else:
+                self._clear_selection_overlay()
+                self._render()
+            return
+        self._drag_start = None
 
     def _set_initial_zoom(self) -> None:
         self.update_idletasks()
@@ -943,12 +967,49 @@ class ComparisonView(tk.Toplevel):
         self._render()
 
     def _on_double_click(self, event: tk.Event) -> None:  # type: ignore[override]
-        self._zoom_at_point(event, 1.10)
-
-    def _zoom_at_point(self, event: tk.Event, factor: float) -> None:  # type: ignore[override]
         canvas = event.widget
-        if not isinstance(canvas, tk.Canvas):
+        if isinstance(canvas, tk.Canvas):
+            self._apply_zoom(canvas, event.x, event.y, 1.10)
+
+    def _start_selection(self, canvas: tk.Canvas, x: int, y: int) -> None:
+        self._clear_selection_overlay()
+        self._selection_canvas = canvas
+        self._selection_start = (x, y)
+        self._selection_rect = canvas.create_rectangle(x, y, x, y, outline="white", dash=(4, 2))
+
+    def _update_selection(self, canvas: tk.Canvas, x: int, y: int) -> None:
+        if self._selection_rect is None or self._selection_start is None:
             return
+        canvas.coords(self._selection_rect, self._selection_start[0], self._selection_start[1], x, y)
+
+    def _finish_selection(self, canvas: tk.Canvas, x: int, y: int) -> None:
+        if self._selection_start is None:
+            self._clear_selection_overlay()
+            return
+        start_x, start_y = self._selection_start
+        width = abs(x - start_x)
+        height = abs(y - start_y)
+        self._clear_selection_overlay()
+        if width < 5 or height < 5:
+            self._render()
+            return
+        canvas_width = max(canvas.winfo_width(), 1)
+        canvas_height = max(canvas.winfo_height(), 1)
+        ratio_w = canvas_width / width if width else 1.0
+        ratio_h = canvas_height / height if height else 1.0
+        factor = max(1.0, min(ratio_w, ratio_h))
+        center_x = (start_x + x) / 2
+        center_y = (start_y + y) / 2
+        self._apply_zoom(canvas, center_x, center_y, factor)
+
+    def _clear_selection_overlay(self) -> None:
+        if self._selection_canvas is not None and self._selection_rect is not None:
+            self._selection_canvas.delete(self._selection_rect)
+        self._selection_rect = None
+        self._selection_start = None
+        self._selection_canvas = None
+
+    def _apply_zoom(self, canvas: tk.Canvas, x: float, y: float, factor: float) -> None:
         key = self._canvas_key(canvas)
         if key is None:
             return
@@ -960,14 +1021,17 @@ class ComparisonView(tk.Toplevel):
             return
         target_scale = self._clamp_scale(current_scale * factor)
         ratio = target_scale / current_scale if current_scale else 1.0
-        if ratio == 1.0:
-            return
         canvas_width = max(canvas.winfo_width(), 1)
         canvas_height = max(canvas.winfo_height(), 1)
         center_x = canvas_width / 2
         center_y = canvas_height / 2
-        delta_x = event.x - center_x - self.offset_x
-        delta_y = event.y - center_y - self.offset_y
+        if ratio == 1.0:
+            self.offset_x += center_x - x
+            self.offset_y += center_y - y
+            self._render()
+            return
+        delta_x = x - center_x - self.offset_x
+        delta_y = y - center_y - self.offset_y
         self.offset_x = -(delta_x) * ratio
         self.offset_y = -(delta_y) * ratio
         for item in self.scales:
@@ -1009,6 +1073,14 @@ class ComparisonView(tk.Toplevel):
 
     def _clamp_scale(self, scale: float) -> float:
         return max(0.25, min(scale, 4.0))
+
+    def _is_shift_pressed(self, event: tk.Event) -> bool:  # type: ignore[override]
+        state = getattr(event, "state", 0)
+        try:
+            state_int = int(state)
+        except (TypeError, ValueError):
+            state_int = 0
+        return bool(state_int & SHIFT_MASK)
 
     def _canvas_key(self, canvas: tk.Canvas) -> Optional[str]:
         if canvas is self.left_canvas:
