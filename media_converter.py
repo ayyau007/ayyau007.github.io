@@ -36,6 +36,21 @@ VIDEO_FORMAT_CHOICES = sorted({fmt.lstrip(".") for fmt in VIDEO_FORMATS})
 RESOLUTION_CHOICES = ["480", "720", "1080", "1440", "2160", "4320"]
 
 
+def format_file_size(num_bytes: Optional[int]) -> str:
+    """Return a human-readable size string."""
+
+    if num_bytes is None:
+        return "Unknown"
+    step = 1024.0
+    units = ["B", "KB", "MB", "GB", "TB"]
+    size = float(num_bytes)
+    for unit in units:
+        if size < step or unit == units[-1]:
+            return f"{size:.2f} {unit}"
+        size /= step
+    return f"{num_bytes} B"
+
+
 class MediaConverterApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
@@ -766,6 +781,7 @@ class ComparisonView(tk.Toplevel):
         self.scales: Dict[str, float] = {"source": 1.0, "dest": 1.0}
         self.fit_mode = False
         self.fit_scales: Dict[str, float] = {"source": 1.0, "dest": 1.0}
+        self.metadata: Dict[str, Dict[str, str]] = {"source": {}, "dest": {}}
 
         self._build_ui()
         if self.mapping:
@@ -789,10 +805,21 @@ class ComparisonView(tk.Toplevel):
 
         canvas_frame = ttk.Frame(viewer_frame)
         canvas_frame.pack(fill=tk.BOTH, expand=True)
-        self.left_canvas = tk.Canvas(canvas_frame, width=500, height=500, background="black")
-        self.left_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
-        self.right_canvas = tk.Canvas(canvas_frame, width=500, height=500, background="black")
-        self.right_canvas.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5)
+
+        left_panel = ttk.Frame(canvas_frame)
+        left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        right_panel = ttk.Frame(canvas_frame)
+        right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
+
+        self.left_canvas = tk.Canvas(left_panel, width=500, height=500, background="black")
+        self.left_canvas.pack(fill=tk.BOTH, expand=True)
+        self.left_info_label = ttk.Label(left_panel, text="", anchor=tk.W, justify=tk.LEFT, wraplength=400)
+        self.left_info_label.pack(fill=tk.X, pady=(5, 0))
+
+        self.right_canvas = tk.Canvas(right_panel, width=500, height=500, background="black")
+        self.right_canvas.pack(fill=tk.BOTH, expand=True)
+        self.right_info_label = ttk.Label(right_panel, text="", anchor=tk.W, justify=tk.LEFT, wraplength=400)
+        self.right_info_label.pack(fill=tk.X, pady=(5, 0))
 
         for canvas in (self.left_canvas, self.right_canvas):
             canvas.bind("<ButtonPress-1>", self._on_drag_start)
@@ -833,7 +860,30 @@ class ComparisonView(tk.Toplevel):
         self.scales = {"source": 1.0, "dest": 1.0}
         for key, path in (("source", entry["source"]), ("dest", entry["dest"])):
             self.images[key] = self._load_image(path)
+            self.metadata[key] = self._build_metadata(path, self.images[key])
+        self._update_metadata_labels()
         self._fit_to_window()
+
+    def _build_metadata(self, path: str, img: Optional[Image.Image]) -> Dict[str, str]:
+        resolution = f"{img.width}x{img.height}" if img else "N/A"
+        try:
+            size_bytes = os.path.getsize(path)
+        except OSError:
+            size_bytes = None
+        return {
+            "path": path,
+            "resolution": resolution,
+            "size": format_file_size(size_bytes),
+        }
+
+    def _format_metadata_text(self, meta: Dict[str, str]) -> str:
+        if not meta:
+            return ""
+        return f"{meta.get('path', '')}\n{meta.get('resolution', 'N/A')} | {meta.get('size', 'Unknown')}"
+
+    def _update_metadata_labels(self) -> None:
+        self.left_info_label.config(text=self._format_metadata_text(self.metadata.get("source", {})))
+        self.right_info_label.config(text=self._format_metadata_text(self.metadata.get("dest", {})))
 
     def _load_image(self, path: str) -> Optional[Image.Image]:
         ext = os.path.splitext(path)[1].lower()
