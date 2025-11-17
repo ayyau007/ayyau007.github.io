@@ -756,10 +756,7 @@ class ComparisonView(tk.Toplevel):
         self._drag_start: Optional[Tuple[int, int]] = None
         self.images: Dict[str, Optional[Image.Image]] = {"source": None, "dest": None}
         self.photo_images: Dict[str, Optional[ImageTk.PhotoImage]] = {"source": None, "dest": None}
-        self.zoom_vars = {
-            "source": tk.DoubleVar(value=1.0),
-            "dest": tk.DoubleVar(value=1.0),
-        }
+        self.zoom_var = tk.DoubleVar(value=1.0)
 
         self._build_ui()
         if self.mapping:
@@ -791,30 +788,24 @@ class ComparisonView(tk.Toplevel):
         for canvas in (self.left_canvas, self.right_canvas):
             canvas.bind("<ButtonPress-1>", self._on_drag_start)
             canvas.bind("<B1-Motion>", self._on_drag)
+            canvas.bind("<Double-Button-1>", self._on_double_click)
             canvas.bind("<Configure>", lambda _event: self._render())
 
         controls = ttk.Frame(viewer_frame)
         controls.pack(fill=tk.X, pady=5)
         ttk.Button(controls, text="Previous", command=self.show_previous).pack(side=tk.LEFT)
         ttk.Button(controls, text="Next", command=self.show_next).pack(side=tk.LEFT, padx=5)
-        ttk.Label(controls, text="Source Zoom").pack(side=tk.LEFT, padx=(20, 5))
+        ttk.Label(controls, text="Zoom").pack(side=tk.LEFT, padx=(20, 5))
         ttk.Scale(
             controls,
             from_=0.25,
             to=4.0,
             orient=tk.HORIZONTAL,
-            variable=self.zoom_vars["source"],
-            command=lambda _v: self._on_zoom_change("source"),
+            variable=self.zoom_var,
+            command=self._on_zoom_change,
         ).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Label(controls, text="Converted Zoom").pack(side=tk.LEFT, padx=(20, 5))
-        ttk.Scale(
-            controls,
-            from_=0.25,
-            to=4.0,
-            orient=tk.HORIZONTAL,
-            variable=self.zoom_vars["dest"],
-            command=lambda _v: self._on_zoom_change("dest"),
-        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(controls, text="1:1", command=self._set_actual_size).pack(side=tk.LEFT, padx=5)
+        ttk.Button(controls, text="Fit to Window", command=self._fit_to_window).pack(side=tk.LEFT)
         ttk.Button(controls, text="Close", command=self.destroy).pack(side=tk.RIGHT)
 
     def _load_pair(self, index: int) -> None:
@@ -851,7 +842,7 @@ class ComparisonView(tk.Toplevel):
             if img is None:
                 canvas.create_text(canvas.winfo_width() / 2, canvas.winfo_height() / 2, fill="white", text="Preview not available")
                 continue
-            scale = self.zoom_vars[key].get()
+            scale = self.zoom_var.get()
             width = int(img.width * scale)
             height = int(img.height * scale)
             resized = img.resize((max(1, width), max(1, height)), Image.LANCZOS)
@@ -875,7 +866,7 @@ class ComparisonView(tk.Toplevel):
         new_index = (self.current_index + 1) % len(self.mapping)
         self._load_pair(new_index)
 
-    def _on_zoom_change(self, _key: str) -> None:
+    def _on_zoom_change(self, _value: str = "") -> None:
         self._render()
 
     def _on_drag_start(self, event: tk.Event) -> None:  # type: ignore[override]
@@ -905,8 +896,38 @@ class ComparisonView(tk.Toplevel):
             scales.append(min(scale_w, scale_h))
         initial = min(scales) if scales else 1.0
         initial = max(0.25, min(initial, 4.0))
-        self.zoom_vars["source"].set(initial)
-        self.zoom_vars["dest"].set(initial)
+        self.zoom_var.set(initial)
+
+    def _set_actual_size(self) -> None:
+        self.zoom_var.set(1.0)
+        self._render()
+
+    def _fit_to_window(self) -> None:
+        self.offset_x = 0
+        self.offset_y = 0
+        self._set_initial_zoom()
+        self._render()
+
+    def _on_double_click(self, event: tk.Event) -> None:  # type: ignore[override]
+        self._zoom_at_point(event, 1.05)
+
+    def _zoom_at_point(self, event: tk.Event, factor: float) -> None:  # type: ignore[override]
+        old_scale = self.zoom_var.get()
+        new_scale = min(4.0, max(0.25, old_scale * factor))
+        canvas = event.widget
+        if not isinstance(canvas, tk.Canvas) or old_scale <= 0:
+            return
+        canvas_width = max(canvas.winfo_width(), 1)
+        canvas_height = max(canvas.winfo_height(), 1)
+        center_x = canvas_width / 2
+        center_y = canvas_height / 2
+        ratio = new_scale / old_scale if old_scale else 1.0
+        delta_x = event.x - center_x - self.offset_x
+        delta_y = event.y - center_y - self.offset_y
+        self.offset_x = -(delta_x) * ratio
+        self.offset_y = -(delta_y) * ratio
+        self.zoom_var.set(new_scale)
+        self._render()
 
 
 def main() -> None:
