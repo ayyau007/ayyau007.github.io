@@ -2,11 +2,17 @@
 """Media conversion GUI with comparison view."""
 import json
 import os
+import platform
 import queue
 import shutil
+import stat
 import subprocess
+import tarfile
+import tempfile
 import threading
 import time
+import urllib.request
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -44,6 +50,14 @@ class MediaConverterApp:
         self.processed_images_var = tk.IntVar(value=0)
         self.processed_videos_var = tk.IntVar(value=0)
         self.total_processed_var = tk.IntVar(value=0)
+
+        self.local_bin_dir = Path.home() / ".media_converter" / "bin"
+        self.local_bin_dir.mkdir(parents=True, exist_ok=True)
+        self.ffmpeg_path = self._find_binary("ffmpeg")
+        self.ffprobe_path = self._find_binary("ffprobe")
+        self._dependency_window: Optional[tk.Toplevel] = None
+        self._dependency_status: Optional[tk.StringVar] = None
+        self._dependency_button: Optional[ttk.Button] = None
 
         self._build_ui()
         self._poll_log_queue()
@@ -237,6 +251,8 @@ class MediaConverterApp:
             },
             "small_file_action": self._small_file_action(),
         }
+        if not self._ensure_required_tools(job):
+            return
         self.convert_btn.configure(state=tk.DISABLED)
         threading.Thread(target=self._run_conversion, args=(job,), daemon=True).start()
 
@@ -267,6 +283,156 @@ class MediaConverterApp:
             messagebox.showerror("Failed", f"Could not load mapping file: {exc}")
 
     # --- Background tasks ------------------------------------------------
+    def _ensure_required_tools(self, job: Dict[str, object]) -> bool:
+        video_cfg = job.get("video", {})
+        if not isinstance(video_cfg, dict) or not video_cfg.get("enabled"):
+            return True
+        self.ffmpeg_path = self._find_binary("ffmpeg")
+        self.ffprobe_path = self._find_binary("ffprobe")
+        missing = [name for name, path in (("ffmpeg", self.ffmpeg_path), ("ffprobe", self.ffprobe_path)) if not path]
+        if missing:
+            self._log(
+                "Missing dependencies: " + ", ".join(missing) + ". Please install them before converting videos."
+            )
+            self._prompt_dependency_install(missing)
+            messagebox.showwarning(
+                "Missing program",
+                "The following program(s) are required for video conversion: " + ", ".join(missing),
+            )
+            return False
+        return True
+
+    def _prompt_dependency_install(self, missing: Sequence[str]) -> None:
+        message = (
+            "The following program(s) are required for video conversion: "
+            + ", ".join(missing)
+            + ". Click Download and Install to fetch the latest ffmpeg package."
+        )
+        if self._dependency_window and self._dependency_window.winfo_exists():
+            if self._dependency_status:
+                self._dependency_status.set(message)
+            self._dependency_window.lift()
+            return
+        window = tk.Toplevel(self.root)
+        window.title("Install Required Program")
+        window.geometry("420x220")
+        ttk.Label(window, text="Missing dependency", font=("TkDefaultFont", 12, "bold")).pack(pady=(10, 5))
+        status = tk.StringVar(value=message)
+        self._dependency_status = status
+        ttk.Label(window, textvariable=status, wraplength=380).pack(padx=10)
+        button = ttk.Button(window, text="Download and Install", command=self._start_dependency_install)
+        button.pack(pady=10)
+        self._dependency_button = button
+        ttk.Button(window, text="Close", command=lambda: self._close_dependency_window(window)).pack(pady=(0, 10))
+        window.transient(self.root)
+        window.grab_set()
+        window.protocol("WM_DELETE_WINDOW", lambda: self._close_dependency_window(window))
+        self._dependency_window = window
+
+    def _close_dependency_window(self, window: tk.Toplevel) -> None:
+        if window.winfo_exists():
+            window.grab_release()
+            window.destroy()
+        self._dependency_window = None
+        self._dependency_status = None
+        self._dependency_button = None
+
+    def _start_dependency_install(self) -> None:
+        if not self._dependency_button:
+            return
+        self._dependency_button.configure(state=tk.DISABLED)
+        threading.Thread(target=self._download_and_install_ffmpeg_suite, daemon=True).start()
+
+    def _download_and_install_ffmpeg_suite(self) -> None:
+        tmpdir: Optional[Path] = None
+        try:
+            info = self._ffmpeg_download_info()
+            if not info:
+                raise RuntimeError("Automatic installation is not supported on this platform.")
+            tmpdir = Path(tempfile.mkdtemp(prefix="ffmpeg_dl_"))
+            archive_path = tmpdir / f"ffmpeg_download{info['suffix']}"
+            self._set_dependency_status("Downloading ffmpeg package...")
+            urllib.request.urlretrieve(info["url"], archive_path)
+            extract_dir = tmpdir / "extract"
+            extract_dir.mkdir(exist_ok=True)
+            self._set_dependency_status("Extracting package...")
+            self._extract_archive(archive_path, extract_dir, info["archive"])
+            binaries = self._collect_binaries(extract_dir)
+            if not binaries:
+                raise RuntimeError("Could not locate ffmpeg binaries in downloaded archive.")
+            for _, src in binaries.items():
+                dest = self.local_bin_dir / os.path.basename(src)
+                shutil.copy2(src, dest)
+                self._ensure_executable(dest)
+            self._refresh_binary_paths()
+            self._set_dependency_status(
+                "Installation completed. Close this window and start conversion again."
+            )
+            self._log(f"Installed ffmpeg tools at {self.local_bin_dir}")
+        except Exception as exc:  # pylint: disable=broad-except
+            self._set_dependency_status(f"Installation failed: {exc}")
+            if self._dependency_button:
+                self.root.after(0, lambda: self._dependency_button.configure(state=tk.NORMAL))
+        finally:
+            if tmpdir and tmpdir.exists():
+                shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def _ffmpeg_download_info(self) -> Optional[Dict[str, str]]:
+        system = platform.system().lower()
+        if system == "windows":
+            return {
+                "url": "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+                "archive": "zip",
+                "suffix": ".zip",
+            }
+        if system == "darwin":
+            return {
+                "url": "https://evermeet.cx/ffmpeg/getrelease/zip",
+                "archive": "zip",
+                "suffix": ".zip",
+            }
+        if system == "linux":
+            return {
+                "url": "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz",
+                "archive": "tar",
+                "suffix": ".tar.xz",
+            }
+        return None
+
+    def _extract_archive(self, archive_path: Path, extract_dir: Path, archive_type: str) -> None:
+        if archive_type == "zip":
+            with zipfile.ZipFile(archive_path) as zf:
+                zf.extractall(extract_dir)
+        else:
+            with tarfile.open(archive_path) as tf:
+                tf.extractall(extract_dir)
+
+    def _collect_binaries(self, folder: Path) -> Dict[str, Path]:
+        names = {"ffmpeg", "ffprobe"}
+        found: Dict[str, Path] = {}
+        for root, _dirs, files in os.walk(folder):
+            for filename in files:
+                lower = filename.lower()
+                for name in names:
+                    if lower == name or lower == f"{name}.exe":
+                        found[name] = Path(root) / filename
+                if len(found) == len(names):
+                    return found
+        return found
+
+    def _ensure_executable(self, path: Path) -> None:
+        if os.name != "nt":
+            mode = path.stat().st_mode
+            path.chmod(mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+    def _set_dependency_status(self, message: str) -> None:
+        if self._dependency_status:
+            self.root.after(0, lambda: self._dependency_status.set(message))
+
+    def _refresh_binary_paths(self) -> None:
+        self.ffmpeg_path = self._find_binary("ffmpeg")
+        self.ffprobe_path = self._find_binary("ffprobe")
+
     def _run_conversion(self, job: Dict[str, object]) -> None:
         image_formats = job["image"]["source_formats"] if job["image"]["enabled"] else []
         video_formats = job["video"]["source_formats"] if job["video"]["enabled"] else []
@@ -372,6 +538,17 @@ class MediaConverterApp:
                     seen.add(item.path)
         return results
 
+    def _find_binary(self, name: str) -> Optional[str]:
+        candidate = shutil.which(name)
+        if candidate:
+            return candidate
+        suffix = ".exe" if os.name == "nt" and not name.endswith(".exe") else ""
+        local_path = self.local_bin_dir / f"{name}{suffix}"
+        if local_path.exists():
+            return str(local_path)
+        alt_path = self.local_bin_dir / name
+        return str(alt_path) if alt_path.exists() else None
+
     def _normalize_format(self, value: str) -> str:
         value = (value or "").strip().lower()
         if not value:
@@ -422,8 +599,10 @@ class MediaConverterApp:
         return max(width, height) < target_long_side
 
     def _probe_video_size(self, path: str) -> Tuple[int, int]:
+        if not self.ffprobe_path:
+            raise RuntimeError("ffprobe is not available.")
         cmd = [
-            "ffprobe",
+            self.ffprobe_path,
             "-v",
             "error",
             "-select_streams",
@@ -467,10 +646,12 @@ class MediaConverterApp:
             resized.save(dest, format=format_name)
 
     def _convert_with_ffmpeg(self, source: str, dest: str, config: Dict[str, object]) -> None:
+        if not self.ffmpeg_path:
+            raise RuntimeError("ffmpeg is not available.")
         target_long_side = int(config["target_long_side"])
         scale_filter = f"scale=if(gt(iw,ih),{target_long_side},-2):if(gt(iw,ih),-2,{target_long_side})"
         cmd = [
-            "ffmpeg",
+            self.ffmpeg_path,
             "-y",
             "-i",
             source,
