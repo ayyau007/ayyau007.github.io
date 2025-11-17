@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from PIL import Image, ImageTk
+from PIL import Image, ImageOps, ImageTk
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -23,6 +23,9 @@ class SourceItem:
 
 IMAGE_FORMATS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp", ".heic"}
 VIDEO_FORMATS = {".mp4", ".mov", ".avi", ".mkv", ".wmv", ".flv", ".webm"}
+IMAGE_FORMAT_CHOICES = sorted({fmt.lstrip(".") for fmt in IMAGE_FORMATS})
+VIDEO_FORMAT_CHOICES = sorted({fmt.lstrip(".") for fmt in VIDEO_FORMATS})
+RESOLUTION_CHOICES = ["480", "720", "1080", "1440", "2160", "4320"]
 
 
 class MediaConverterApp:
@@ -57,30 +60,46 @@ class MediaConverterApp:
         self.source_list.pack(fill=tk.X)
 
         # Conversion options
-        options_frame = ttk.LabelFrame(main, text="Conversion Options", padding=10)
+        options_frame = ttk.Frame(main)
         options_frame.pack(fill=tk.X, pady=10)
 
-        ttk.Label(options_frame, text="Original formats (comma separated, e.g. jpg,png,mp4)").grid(row=0, column=0, sticky=tk.W)
-        self.original_formats_var = tk.StringVar(value="jpg,jpeg,png,webp,mp4,mov,mkv")
-        ttk.Entry(options_frame, textvariable=self.original_formats_var).grid(row=1, column=0, columnspan=3, sticky=tk.EW, pady=2)
+        self.enable_image_var = tk.BooleanVar(value=True)
+        self.enable_video_var = tk.BooleanVar(value=True)
 
-        ttk.Label(options_frame, text="Target format (e.g. jpg or mp4)").grid(row=2, column=0, sticky=tk.W)
-        self.target_format_var = tk.StringVar(value="jpg")
-        ttk.Entry(options_frame, textvariable=self.target_format_var, width=10).grid(row=2, column=1, sticky=tk.W)
+        image_frame = ttk.LabelFrame(options_frame, text="Image Conversion", padding=10)
+        image_frame.pack(fill=tk.X, pady=5)
+        ttk.Checkbutton(image_frame, text="Enable image conversion", variable=self.enable_image_var).grid(row=0, column=0, columnspan=2, sticky=tk.W)
+        ttk.Label(image_frame, text="Original format").grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
+        image_source_options = ["All Images"] + [fmt.upper() for fmt in IMAGE_FORMAT_CHOICES]
+        self.image_source_var = tk.StringVar(value=image_source_options[0])
+        ttk.Combobox(image_frame, textvariable=self.image_source_var, state="readonly", values=image_source_options).grid(row=1, column=1, sticky=tk.EW, padx=(10, 0), pady=(5, 0))
+        ttk.Label(image_frame, text="Target format").grid(row=2, column=0, sticky=tk.W, pady=(5, 0))
+        self.image_target_var = tk.StringVar(value="JPG")
+        ttk.Combobox(image_frame, textvariable=self.image_target_var, state="readonly", values=[fmt.upper() for fmt in IMAGE_FORMAT_CHOICES]).grid(row=2, column=1, sticky=tk.EW, padx=(10, 0), pady=(5, 0))
+        ttk.Label(image_frame, text="Target long side").grid(row=3, column=0, sticky=tk.W, pady=(5, 0))
+        self.image_resolution_var = tk.StringVar(value=RESOLUTION_CHOICES[2])
+        ttk.Combobox(image_frame, textvariable=self.image_resolution_var, state="readonly", values=RESOLUTION_CHOICES).grid(row=3, column=1, sticky=tk.EW, padx=(10, 0), pady=(5, 0))
+        for i in range(2):
+            image_frame.columnconfigure(i, weight=1)
 
-        ttk.Label(options_frame, text="Target width").grid(row=3, column=0, sticky=tk.W)
-        self.target_width_var = tk.StringVar(value="1920")
-        ttk.Entry(options_frame, textvariable=self.target_width_var, width=8).grid(row=3, column=1, sticky=tk.W)
-
-        ttk.Label(options_frame, text="Target height").grid(row=3, column=2, sticky=tk.W, padx=(10, 0))
-        self.target_height_var = tk.StringVar(value="1080")
-        ttk.Entry(options_frame, textvariable=self.target_height_var, width=8).grid(row=3, column=3, sticky=tk.W)
+        video_frame = ttk.LabelFrame(options_frame, text="Video Conversion", padding=10)
+        video_frame.pack(fill=tk.X, pady=5)
+        ttk.Checkbutton(video_frame, text="Enable video conversion", variable=self.enable_video_var).grid(row=0, column=0, columnspan=2, sticky=tk.W)
+        ttk.Label(video_frame, text="Original format").grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
+        video_source_options = ["All Videos"] + [fmt.upper() for fmt in VIDEO_FORMAT_CHOICES]
+        self.video_source_var = tk.StringVar(value=video_source_options[0])
+        ttk.Combobox(video_frame, textvariable=self.video_source_var, state="readonly", values=video_source_options).grid(row=1, column=1, sticky=tk.EW, padx=(10, 0), pady=(5, 0))
+        ttk.Label(video_frame, text="Target format").grid(row=2, column=0, sticky=tk.W, pady=(5, 0))
+        self.video_target_var = tk.StringVar(value="MP4")
+        ttk.Combobox(video_frame, textvariable=self.video_target_var, state="readonly", values=[fmt.upper() for fmt in VIDEO_FORMAT_CHOICES]).grid(row=2, column=1, sticky=tk.EW, padx=(10, 0), pady=(5, 0))
+        ttk.Label(video_frame, text="Target long side").grid(row=3, column=0, sticky=tk.W, pady=(5, 0))
+        self.video_resolution_var = tk.StringVar(value=RESOLUTION_CHOICES[2])
+        ttk.Combobox(video_frame, textvariable=self.video_resolution_var, state="readonly", values=RESOLUTION_CHOICES).grid(row=3, column=1, sticky=tk.EW, padx=(10, 0), pady=(5, 0))
+        for i in range(2):
+            video_frame.columnconfigure(i, weight=1)
 
         self.skip_smaller_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(options_frame, text="Skip files that are smaller than the target resolution", variable=self.skip_smaller_var).grid(row=4, column=0, columnspan=4, sticky=tk.W, pady=5)
-
-        for i in range(4):
-            options_frame.columnconfigure(i, weight=1)
+        ttk.Checkbutton(options_frame, text="Skip files that are smaller than the target long side", variable=self.skip_smaller_var).pack(anchor=tk.W, pady=5)
 
         # Target folder
         target_frame = ttk.LabelFrame(main, text="Target", padding=10)
@@ -141,29 +160,49 @@ class MediaConverterApp:
         if not self.target_folder:
             messagebox.showinfo("No target", "Please choose a target folder.")
             return
+        if not self.enable_image_var.get() and not self.enable_video_var.get():
+            messagebox.showinfo("No media types", "Enable image and/or video conversion to continue.")
+            return
 
         try:
-            target_width = int(self.target_width_var.get())
-            target_height = int(self.target_height_var.get())
+            image_long_side = int(self.image_resolution_var.get())
+            video_long_side = int(self.video_resolution_var.get())
         except ValueError:
-            messagebox.showerror("Invalid resolution", "Width and height must be integers.")
+            messagebox.showerror("Invalid resolution", "Please select a numeric long-side resolution.")
             return
 
-        original_formats = [f".{fmt.strip().lower()}" if not fmt.strip().startswith('.') else fmt.strip().lower() for fmt in self.original_formats_var.get().split(',') if fmt.strip()]
-        if not original_formats:
-            messagebox.showerror("No formats", "Please specify at least one original format.")
+        image_formats = self._selected_formats(self.image_source_var.get(), IMAGE_FORMATS, prefix="All") if self.enable_image_var.get() else []
+        video_formats = self._selected_formats(self.video_source_var.get(), VIDEO_FORMATS, prefix="All") if self.enable_video_var.get() else []
+
+        if self.enable_image_var.get() and not image_formats:
+            messagebox.showerror("Invalid image format", "Choose at least one source image format.")
+            return
+        if self.enable_video_var.get() and not video_formats:
+            messagebox.showerror("Invalid video format", "Choose at least one source video format.")
             return
 
-        output_format = self.target_format_var.get().strip().lower()
-        if not output_format:
-            messagebox.showerror("No target format", "Please specify a target format.")
+        image_output = self._normalize_format(self.image_target_var.get())
+        video_output = self._normalize_format(self.video_target_var.get())
+        if self.enable_image_var.get() and not image_output:
+            messagebox.showerror("Image format", "Select a target format for images.")
+            return
+        if self.enable_video_var.get() and not video_output:
+            messagebox.showerror("Video format", "Select a target format for videos.")
             return
 
         job = {
-            "target_width": target_width,
-            "target_height": target_height,
-            "original_formats": original_formats,
-            "output_format": output_format,
+            "image": {
+                "enabled": self.enable_image_var.get(),
+                "source_formats": image_formats,
+                "output_format": image_output,
+                "target_long_side": image_long_side,
+            },
+            "video": {
+                "enabled": self.enable_video_var.get(),
+                "source_formats": video_formats,
+                "output_format": video_output,
+                "target_long_side": video_long_side,
+            },
             "skip_smaller": self.skip_smaller_var.get(),
         }
         self.convert_btn.configure(state=tk.DISABLED)
@@ -197,7 +236,9 @@ class MediaConverterApp:
 
     # --- Background tasks ------------------------------------------------
     def _run_conversion(self, job: Dict[str, object]) -> None:
-        files = self._gather_files(job["original_formats"])
+        image_formats = job["image"]["source_formats"] if job["image"]["enabled"] else []
+        video_formats = job["video"]["source_formats"] if job["video"]["enabled"] else []
+        files = self._gather_files(image_formats, video_formats)
         if not files:
             self._log("No files matched the requested formats.")
             self._finish_conversion()
@@ -205,16 +246,17 @@ class MediaConverterApp:
         mapping: List[Dict[str, str]] = []
         skipped = 0
         converted = 0
-        for source, base_dir in files:
+        for source, base_dir, media_type in files:
             rel_path = os.path.relpath(source, base_dir)
-            dest_path = self._destination_path(rel_path, job["output_format"])
+            config = job[media_type]
+            dest_path = self._destination_path(rel_path, config["output_format"])
             os.makedirs(os.path.dirname(dest_path), exist_ok=True)
             try:
-                if job["skip_smaller"] and self._is_smaller_than_target(source, job["target_width"], job["target_height"]):
+                if job["skip_smaller"] and self._is_smaller_than_target(source, config["target_long_side"]):
                     skipped += 1
                     self._log(f"Skipping (smaller): {source}")
                     continue
-                self._convert_file(source, dest_path, job)
+                self._convert_file(source, dest_path, media_type, config)
                 converted += 1
                 mapping.append({"source": source, "dest": dest_path})
                 self._log(f"Converted: {source} -> {dest_path}")
@@ -241,44 +283,73 @@ class MediaConverterApp:
         self.root.after(200, self._poll_log_queue)
 
     # --- Conversion helpers ----------------------------------------------
-    def _gather_files(self, formats: Sequence[str]) -> List[Tuple[str, str]]:
-        wanted = {fmt.lower() if fmt.startswith('.') else f'.{fmt.lower()}' for fmt in formats}
-        results: List[Tuple[str, str]] = []
+    def _gather_files(self, image_formats: Sequence[str], video_formats: Sequence[str]) -> List[Tuple[str, str, str]]:
+        wanted_image = {self._normalize_format(fmt) for fmt in image_formats}
+        wanted_video = {self._normalize_format(fmt) for fmt in video_formats}
+        results: List[Tuple[str, str, str]] = []
         seen: set = set()
         for item in self.sources:
+            base_dir = item.path if item.kind == "folder" else os.path.dirname(item.path)
             if item.kind == "folder":
                 for root, _, files in os.walk(item.path):
                     for filename in files:
                         ext = os.path.splitext(filename)[1].lower()
-                        if ext in wanted:
-                            full_path = os.path.join(root, filename)
-                            if full_path not in seen:
-                                results.append((full_path, item.path))
-                                seen.add(full_path)
+                        full_path = os.path.join(root, filename)
+                        media_type = self._media_type_for_extension(ext, wanted_image, wanted_video)
+                        if media_type and full_path not in seen:
+                            results.append((full_path, base_dir, media_type))
+                            seen.add(full_path)
             else:
                 ext = os.path.splitext(item.path)[1].lower()
-                if ext in wanted and item.path not in seen:
-                    results.append((item.path, os.path.dirname(item.path)))
+                media_type = self._media_type_for_extension(ext, wanted_image, wanted_video)
+                if media_type and item.path not in seen:
+                    results.append((item.path, base_dir, media_type))
                     seen.add(item.path)
         return results
+
+    def _normalize_format(self, value: str) -> str:
+        value = (value or "").strip().lower()
+        if not value:
+            return ""
+        return value if value.startswith('.') else f'.{value}'
+
+    def _selected_formats(self, selection: str, supported: Sequence[str], prefix: str) -> List[str]:
+        selection = (selection or "").strip()
+        if not selection:
+            return []
+        if prefix and selection.lower().startswith(prefix.lower()):
+            return [fmt for fmt in supported]
+        normalized = self._normalize_format(selection)
+        return [normalized] if normalized else []
+
+    def _media_type_for_extension(
+        self, extension: str, image_formats: Sequence[str], video_formats: Sequence[str]
+    ) -> Optional[str]:
+        if extension in image_formats:
+            return "image"
+        if extension in video_formats:
+            return "video"
+        return None
 
     def _destination_path(self, relative_path: str, output_format: str) -> str:
         if not self.target_folder:
             raise RuntimeError("Target folder not set")
         rel_without_ext = os.path.splitext(relative_path)[0]
-        filename = f"{rel_without_ext}.{output_format.lstrip('.')}"
+        extension = output_format if output_format.startswith('.') else f'.{output_format}'
+        filename = f"{rel_without_ext}{extension}"
         return os.path.join(self.target_folder, filename)
 
-    def _is_smaller_than_target(self, path: str, target_w: int, target_h: int) -> bool:
+    def _is_smaller_than_target(self, path: str, target_long_side: int) -> bool:
         ext = os.path.splitext(path)[1].lower()
         if ext in IMAGE_FORMATS:
             with Image.open(path) as img:
+                img = ImageOps.exif_transpose(img)
                 width, height = img.size
         elif ext in VIDEO_FORMATS:
             width, height = self._probe_video_size(path)
         else:
             return False
-        return width < target_w or height < target_h
+        return max(width, height) < target_long_side
 
     def _probe_video_size(self, path: str) -> Tuple[int, int]:
         cmd = [
@@ -301,22 +372,33 @@ class MediaConverterApp:
             self._log(f"ffprobe failed for {path}: {exc}")
             return 0, 0
 
-    def _convert_file(self, source: str, dest: str, job: Dict[str, object]) -> None:
-        ext = os.path.splitext(source)[1].lower()
-        output_ext = f".{job['output_format']}" if not str(job['output_format']).startswith('.') else str(job['output_format'])
-        if ext in IMAGE_FORMATS and output_ext in IMAGE_FORMATS:
-            self._convert_image(source, dest, job)
+    def _convert_file(self, source: str, dest: str, media_type: str, config: Dict[str, object]) -> None:
+        if media_type == "image":
+            self._convert_image(source, dest, config)
         else:
-            self._convert_with_ffmpeg(source, dest, job)
+            self._convert_with_ffmpeg(source, dest, config)
 
-    def _convert_image(self, source: str, dest: str, job: Dict[str, object]) -> None:
+    def _convert_image(self, source: str, dest: str, config: Dict[str, object]) -> None:
+        target_long_side = int(config["target_long_side"])
         with Image.open(source) as img:
+            img = ImageOps.exif_transpose(img)
             img = img.convert("RGB")
-            resized = img.resize((job["target_width"], job["target_height"]), Image.LANCZOS)
-            resized.save(dest)
+            width, height = img.size
+            if width >= height:
+                new_width = target_long_side
+                new_height = max(1, round(height * (target_long_side / width))) if width else height
+            else:
+                new_height = target_long_side
+                new_width = max(1, round(width * (target_long_side / height))) if height else width
+            resized = img.resize((max(1, new_width), max(1, new_height)), Image.LANCZOS)
+            format_name = config["output_format"].lstrip('.').upper()
+            if format_name == "JPG":
+                format_name = "JPEG"
+            resized.save(dest, format=format_name)
 
-    def _convert_with_ffmpeg(self, source: str, dest: str, job: Dict[str, object]) -> None:
-        scale_filter = f"scale={job['target_width']}:{job['target_height']}"
+    def _convert_with_ffmpeg(self, source: str, dest: str, config: Dict[str, object]) -> None:
+        target_long_side = int(config["target_long_side"])
+        scale_filter = f"scale=if(gt(iw,ih),{target_long_side},-2):if(gt(iw,ih),-2,{target_long_side})"
         cmd = [
             "ffmpeg",
             "-y",
@@ -342,13 +424,22 @@ class MediaConverterApp:
         payload = {
             "created": time.time(),
             "target_folder": self.target_folder,
-            "target_format": job["output_format"],
-            "resolution": [job["target_width"], job["target_height"]],
+            "image_config": self._serialize_config(job["image"]),
+            "video_config": self._serialize_config(job["video"]),
+            "skip_smaller": job["skip_smaller"],
             "entries": mapping,
         }
         path = Path(self.target_folder) / "conversion_map.json"
         path.write_text(json.dumps(payload, indent=2))
         self._log(f"Saved mapping file to {path}")
+
+    def _serialize_config(self, config: Dict[str, object]) -> Dict[str, object]:
+        return {
+            "enabled": config.get("enabled", False),
+            "source_formats": list(config.get("source_formats", [])),
+            "output_format": config.get("output_format"),
+            "target_long_side": config.get("target_long_side"),
+        }
 
     def _log(self, message: str) -> None:
         timestamp = time.strftime("%H:%M:%S")
