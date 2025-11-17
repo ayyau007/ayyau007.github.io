@@ -61,14 +61,18 @@ class MediaConverterApp:
 
         self._build_ui()
         self._poll_log_queue()
+        self.root.after(200, self._check_dependencies_on_start)
 
     # --- UI construction -------------------------------------------------
     def _build_ui(self) -> None:
         main = ttk.Frame(self.root, padding=10)
         main.pack(fill=tk.BOTH, expand=True)
 
-        selection_frame = ttk.LabelFrame(main, text="Sources", padding=10)
-        selection_frame.pack(fill=tk.X)
+        source_target_frame = ttk.Frame(main)
+        source_target_frame.pack(fill=tk.X)
+
+        selection_frame = ttk.LabelFrame(source_target_frame, text="Sources", padding=10)
+        selection_frame.grid(row=0, column=0, sticky=tk.NSEW, padx=(0, 10))
 
         btn_frame = ttk.Frame(selection_frame)
         btn_frame.pack(fill=tk.X, pady=5)
@@ -77,7 +81,17 @@ class MediaConverterApp:
         ttk.Button(btn_frame, text="Remove Selected", command=self.remove_selected).pack(side=tk.LEFT)
 
         self.source_list = tk.Listbox(selection_frame, height=6)
-        self.source_list.pack(fill=tk.X)
+        self.source_list.pack(fill=tk.BOTH, expand=True)
+
+        target_frame = ttk.LabelFrame(source_target_frame, text="Target", padding=10)
+        target_frame.grid(row=0, column=1, sticky=tk.NSEW)
+        ttk.Button(target_frame, text="Choose target folder", command=self.choose_target_folder).pack(anchor=tk.W)
+        self.target_label = ttk.Label(target_frame, text="No folder selected", foreground="gray", wraplength=280)
+        self.target_label.pack(fill=tk.X, pady=(5, 0))
+
+        source_target_frame.columnconfigure(0, weight=3)
+        source_target_frame.columnconfigure(1, weight=2)
+        source_target_frame.rowconfigure(0, weight=1)
 
         # Conversion options
         options_frame = ttk.Frame(main)
@@ -133,13 +147,6 @@ class MediaConverterApp:
         ).grid(row=0, column=1, sticky=tk.W, padx=(10, 0))
         small_frame.columnconfigure(1, weight=1)
 
-        # Target folder
-        target_frame = ttk.LabelFrame(main, text="Target", padding=10)
-        target_frame.pack(fill=tk.X)
-        ttk.Button(target_frame, text="Choose target folder", command=self.choose_target_folder).pack(side=tk.LEFT)
-        self.target_label = ttk.Label(target_frame, text="No folder selected", foreground="gray")
-        self.target_label.pack(side=tk.LEFT, padx=10)
-
         # Action buttons
         action_frame = ttk.Frame(main)
         action_frame.pack(fill=tk.X, pady=5)
@@ -153,13 +160,13 @@ class MediaConverterApp:
         processing_frame = ttk.LabelFrame(main, text="Processing", padding=10)
         processing_frame.pack(fill=tk.X, pady=5)
         ttk.Label(processing_frame, text="Total files").grid(row=0, column=0, sticky=tk.W)
-        ttk.Label(processing_frame, textvariable=self.total_files_var).grid(row=0, column=1, sticky=tk.W, padx=(5, 15))
+        ttk.Label(processing_frame, textvariable=self.total_files_var).grid(row=0, column=1, sticky=tk.W, padx=(5, 20))
         ttk.Label(processing_frame, text="Processed Image").grid(row=0, column=2, sticky=tk.W)
-        ttk.Label(processing_frame, textvariable=self.processed_images_var).grid(row=0, column=3, sticky=tk.W, padx=(5, 15))
-        ttk.Label(processing_frame, text="Processed Video").grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
-        ttk.Label(processing_frame, textvariable=self.processed_videos_var).grid(row=1, column=1, sticky=tk.W, padx=(5, 15), pady=(5, 0))
-        ttk.Label(processing_frame, text="Total Processed").grid(row=1, column=2, sticky=tk.W, pady=(5, 0))
-        ttk.Label(processing_frame, textvariable=self.total_processed_var).grid(row=1, column=3, sticky=tk.W, padx=(5, 15), pady=(5, 0))
+        ttk.Label(processing_frame, textvariable=self.processed_images_var).grid(row=0, column=3, sticky=tk.W, padx=(5, 0))
+        ttk.Label(processing_frame, text="Total Processed").grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
+        ttk.Label(processing_frame, textvariable=self.total_processed_var).grid(row=1, column=1, sticky=tk.W, padx=(5, 20), pady=(5, 0))
+        ttk.Label(processing_frame, text="Processed Video").grid(row=1, column=2, sticky=tk.W, pady=(5, 0))
+        ttk.Label(processing_frame, textvariable=self.processed_videos_var).grid(row=1, column=3, sticky=tk.W, padx=(5, 0), pady=(5, 0))
         for col in range(4):
             processing_frame.columnconfigure(col, weight=1)
 
@@ -283,13 +290,23 @@ class MediaConverterApp:
             messagebox.showerror("Failed", f"Could not load mapping file: {exc}")
 
     # --- Background tasks ------------------------------------------------
+    def _check_dependencies_on_start(self) -> None:
+        missing = self._missing_video_tools()
+        if missing:
+            message = (
+                "Missing dependencies detected: "
+                + ", ".join(missing)
+                + ". Video conversions require these programs."
+            )
+            self._log(message)
+            messagebox.showwarning("Missing program", message)
+            self._prompt_dependency_install(missing)
+
     def _ensure_required_tools(self, job: Dict[str, object]) -> bool:
         video_cfg = job.get("video", {})
         if not isinstance(video_cfg, dict) or not video_cfg.get("enabled"):
             return True
-        self.ffmpeg_path = self._find_binary("ffmpeg")
-        self.ffprobe_path = self._find_binary("ffprobe")
-        missing = [name for name, path in (("ffmpeg", self.ffmpeg_path), ("ffprobe", self.ffprobe_path)) if not path]
+        missing = self._missing_video_tools()
         if missing:
             self._log(
                 "Missing dependencies: " + ", ".join(missing) + ". Please install them before converting videos."
@@ -301,6 +318,11 @@ class MediaConverterApp:
             )
             return False
         return True
+
+    def _missing_video_tools(self) -> List[str]:
+        self.ffmpeg_path = self._find_binary("ffmpeg")
+        self.ffprobe_path = self._find_binary("ffprobe")
+        return [name for name, path in (("ffmpeg", self.ffmpeg_path), ("ffprobe", self.ffprobe_path)) if not path]
 
     def _prompt_dependency_install(self, missing: Sequence[str]) -> None:
         message = (
@@ -448,8 +470,7 @@ class MediaConverterApp:
         processed_images = 0
         processed_videos = 0
         total_files = len(files)
-        for source, base_dir, media_type in files:
-            rel_path = os.path.relpath(source, base_dir)
+        for source, rel_path, media_type in files:
             config = job[media_type]
             dest_path = self._destination_path(rel_path, config["output_format"])
             try:
@@ -520,21 +541,24 @@ class MediaConverterApp:
         results: List[Tuple[str, str, str]] = []
         seen: set = set()
         for item in self.sources:
-            base_dir = item.path if item.kind == "folder" else os.path.dirname(item.path)
             if item.kind == "folder":
+                root_name = os.path.basename(os.path.normpath(item.path)) or "source"
                 for root, _, files in os.walk(item.path):
                     for filename in files:
                         ext = os.path.splitext(filename)[1].lower()
                         full_path = os.path.join(root, filename)
                         media_type = self._media_type_for_extension(ext, wanted_image, wanted_video)
                         if media_type and full_path not in seen:
-                            results.append((full_path, base_dir, media_type))
+                            rel_inside = os.path.relpath(full_path, item.path)
+                            rel_path = os.path.join(root_name, rel_inside)
+                            results.append((full_path, rel_path, media_type))
                             seen.add(full_path)
             else:
                 ext = os.path.splitext(item.path)[1].lower()
                 media_type = self._media_type_for_extension(ext, wanted_image, wanted_video)
                 if media_type and item.path not in seen:
-                    results.append((item.path, base_dir, media_type))
+                    rel_path = os.path.basename(item.path)
+                    results.append((item.path, rel_path, media_type))
                     seen.add(item.path)
         return results
 
