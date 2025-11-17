@@ -833,8 +833,7 @@ class ComparisonView(tk.Toplevel):
         self.scales = {"source": 1.0, "dest": 1.0}
         for key, path in (("source", entry["source"]), ("dest", entry["dest"])):
             self.images[key] = self._load_image(path)
-        self._set_initial_zoom()
-        self._render()
+        self._fit_to_window()
 
     def _load_image(self, path: str) -> Optional[Image.Image]:
         ext = os.path.splitext(path)[1].lower()
@@ -926,24 +925,6 @@ class ComparisonView(tk.Toplevel):
                 self._render()
             return
         self._drag_start = None
-
-    def _set_initial_zoom(self) -> None:
-        self.update_idletasks()
-        scales: List[float] = []
-        for canvas, key in ((self.left_canvas, "source"), (self.right_canvas, "dest")):
-            img = self.images[key]
-            if img is None or img.width == 0 or img.height == 0:
-                continue
-            canvas_width = max(canvas.winfo_width(), 1)
-            canvas_height = max(canvas.winfo_height(), 1)
-            scale_w = canvas_width / img.width
-            scale_h = canvas_height / img.height
-            scales.append(min(scale_w, scale_h))
-        initial = min(scales) if scales else 1.0
-        initial = max(0.25, min(initial, 4.0))
-        self.scales = {"source": initial, "dest": initial}
-        self._set_zoom_value(initial)
-        self.fit_mode = False
 
     def _set_actual_size(self) -> None:
         self.fit_mode = False
