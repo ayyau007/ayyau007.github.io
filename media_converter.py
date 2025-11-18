@@ -64,7 +64,10 @@ class MediaConverterApp:
 
         self.total_files_var = tk.IntVar(value=0)
         self.processed_images_var = tk.IntVar(value=0)
+        self.image_skipped_var = tk.IntVar(value=0)
         self.processed_videos_var = tk.IntVar(value=0)
+        self.video_skipped_var = tk.IntVar(value=0)
+        self.other_files_var = tk.IntVar(value=0)
         self.total_processed_var = tk.IntVar(value=0)
 
         self.local_bin_dir = Path.home() / ".media_converter" / "bin"
@@ -74,6 +77,8 @@ class MediaConverterApp:
         self._dependency_window: Optional[tk.Toplevel] = None
         self._dependency_status: Optional[tk.StringVar] = None
         self._dependency_button: Optional[ttk.Button] = None
+
+        self.copy_other_files_var = tk.BooleanVar(value=False)
 
         self._build_ui()
         self._poll_log_queue()
@@ -163,6 +168,14 @@ class MediaConverterApp:
         ).grid(row=0, column=1, sticky=tk.W, padx=(10, 0))
         small_frame.columnconfigure(1, weight=1)
 
+        other_frame = ttk.LabelFrame(main, text="Other Files", padding=10)
+        other_frame.pack(fill=tk.X, pady=5)
+        ttk.Checkbutton(
+            other_frame,
+            text="Copy non-image and non-video files",
+            variable=self.copy_other_files_var,
+        ).pack(anchor=tk.W)
+
         # Action buttons
         action_frame = ttk.Frame(main)
         action_frame.pack(fill=tk.X, pady=5)
@@ -178,12 +191,32 @@ class MediaConverterApp:
         ttk.Label(processing_frame, text="Total files").grid(row=0, column=0, sticky=tk.W)
         ttk.Label(processing_frame, textvariable=self.total_files_var).grid(row=0, column=1, sticky=tk.W, padx=(5, 20))
         ttk.Label(processing_frame, text="Processed Image").grid(row=0, column=2, sticky=tk.W)
-        ttk.Label(processing_frame, textvariable=self.processed_images_var).grid(row=0, column=3, sticky=tk.W, padx=(5, 0))
+        ttk.Label(processing_frame, text="Converted").grid(row=0, column=3, sticky=tk.W)
+        ttk.Label(processing_frame, textvariable=self.processed_images_var).grid(
+            row=0, column=4, sticky=tk.W, padx=(5, 20)
+        )
+        ttk.Label(processing_frame, text="Skipped/Just Copied").grid(row=0, column=5, sticky=tk.W)
+        ttk.Label(processing_frame, textvariable=self.image_skipped_var).grid(
+            row=0, column=6, sticky=tk.W, padx=(5, 0)
+        )
         ttk.Label(processing_frame, text="Total Processed").grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
-        ttk.Label(processing_frame, textvariable=self.total_processed_var).grid(row=1, column=1, sticky=tk.W, padx=(5, 20), pady=(5, 0))
+        ttk.Label(processing_frame, textvariable=self.total_processed_var).grid(
+            row=1, column=1, sticky=tk.W, padx=(5, 20), pady=(5, 0)
+        )
         ttk.Label(processing_frame, text="Processed Video").grid(row=1, column=2, sticky=tk.W, pady=(5, 0))
-        ttk.Label(processing_frame, textvariable=self.processed_videos_var).grid(row=1, column=3, sticky=tk.W, padx=(5, 0), pady=(5, 0))
-        for col in range(4):
+        ttk.Label(processing_frame, text="Converted").grid(row=1, column=3, sticky=tk.W, pady=(5, 0))
+        ttk.Label(processing_frame, textvariable=self.processed_videos_var).grid(
+            row=1, column=4, sticky=tk.W, padx=(5, 20), pady=(5, 0)
+        )
+        ttk.Label(processing_frame, text="Skipped/Just Copied").grid(row=1, column=5, sticky=tk.W, pady=(5, 0))
+        ttk.Label(processing_frame, textvariable=self.video_skipped_var).grid(
+            row=1, column=6, sticky=tk.W, padx=(5, 0), pady=(5, 0)
+        )
+        ttk.Label(processing_frame, text="Other files copied").grid(row=2, column=2, sticky=tk.W, pady=(5, 0))
+        ttk.Label(processing_frame, textvariable=self.other_files_var).grid(
+            row=2, column=3, sticky=tk.W, padx=(5, 0), pady=(5, 0)
+        )
+        for col in range(7):
             processing_frame.columnconfigure(col, weight=1)
 
         # Log window
@@ -273,6 +306,7 @@ class MediaConverterApp:
                 "target_long_side": video_long_side,
             },
             "small_file_action": self._small_file_action(),
+            "copy_other_files": self.copy_other_files_var.get(),
         }
         if not self._ensure_required_tools(job):
             return
@@ -474,67 +508,119 @@ class MediaConverterApp:
     def _run_conversion(self, job: Dict[str, object]) -> None:
         image_formats = job["image"]["source_formats"] if job["image"]["enabled"] else []
         video_formats = job["video"]["source_formats"] if job["video"]["enabled"] else []
-        files = self._gather_files(image_formats, video_formats)
-        self._update_processing_counts(total=len(files), processed_image=0, processed_video=0)
-        if not files:
+        include_other = bool(job.get("copy_other_files"))
+        media_files, other_files = self._gather_files(
+            image_formats, video_formats, include_other=include_other
+        )
+        total_files = len(media_files) + len(other_files)
+        self._update_processing_counts(
+            total=total_files,
+            image_converted=0,
+            image_skipped=0,
+            video_converted=0,
+            video_skipped=0,
+            other_copied=0,
+        )
+        if total_files == 0:
             self._log("No files matched the requested formats.")
             self._finish_conversion()
             return
         mapping: List[Dict[str, str]] = []
-        skipped = 0
-        converted = 0
-        processed_images = 0
-        processed_videos = 0
-        total_files = len(files)
-        for source, rel_path, media_type in files:
+        image_converted = 0
+        video_converted = 0
+        image_skipped = 0
+        video_skipped = 0
+        other_copied = 0
+        small_action = job.get("small_file_action", "skip")
+        for source, rel_path, media_type in media_files:
             config = job[media_type]
             dest_path = self._destination_path(rel_path, config["output_format"])
             try:
                 smaller = self._is_smaller_than_target(source, config["target_long_side"])
                 if smaller:
-                    action = job.get("small_file_action", "skip")
-                    if action == "skip":
-                        skipped += 1
+                    if small_action == "skip":
+                        if media_type == "image":
+                            image_skipped += 1
+                        else:
+                            video_skipped += 1
                         self._log(f"Skipping (smaller): {source}")
+                        self._update_processing_counts(
+                            total=total_files,
+                            image_converted=image_converted,
+                            image_skipped=image_skipped,
+                            video_converted=video_converted,
+                            video_skipped=video_skipped,
+                            other_copied=other_copied,
+                        )
                         continue
-                    if action == "copy":
+                    if small_action == "copy":
                         copy_dest = self._copy_destination_path(rel_path)
                         os.makedirs(os.path.dirname(copy_dest), exist_ok=True)
                         shutil.copy2(source, copy_dest)
                         mapping.append({"source": source, "dest": copy_dest})
                         self._log(f"Copied (smaller): {source} -> {copy_dest}")
-                        converted += 1
                         if media_type == "image":
-                            processed_images += 1
+                            image_skipped += 1
                         else:
-                            processed_videos += 1
+                            video_skipped += 1
                         self._update_processing_counts(
                             total=total_files,
-                            processed_image=processed_images,
-                            processed_video=processed_videos,
+                            image_converted=image_converted,
+                            image_skipped=image_skipped,
+                            video_converted=video_converted,
+                            video_skipped=video_skipped,
+                            other_copied=other_copied,
                         )
                         continue
                 os.makedirs(os.path.dirname(dest_path), exist_ok=True)
                 self._convert_file(source, dest_path, media_type, config)
-                converted += 1
                 mapping.append({"source": source, "dest": dest_path})
                 self._log(f"Converted: {source} -> {dest_path}")
                 if media_type == "image":
-                    processed_images += 1
+                    image_converted += 1
                 else:
-                    processed_videos += 1
+                    video_converted += 1
                 self._update_processing_counts(
                     total=total_files,
-                    processed_image=processed_images,
-                    processed_video=processed_videos,
+                    image_converted=image_converted,
+                    image_skipped=image_skipped,
+                    video_converted=video_converted,
+                    video_skipped=video_skipped,
+                    other_copied=other_copied,
                 )
             except Exception as exc:  # pylint: disable=broad-except
                 self._log(f"Failed to convert {source}: {exc}")
+        if include_other and other_files:
+            for source, rel_path in other_files:
+                try:
+                    dest = self._copy_destination_path(rel_path)
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    shutil.copy2(source, dest)
+                    other_copied += 1
+                    self._log(f"Copied other file: {source} -> {dest}")
+                    self._update_processing_counts(
+                        total=total_files,
+                        image_converted=image_converted,
+                        image_skipped=image_skipped,
+                        video_converted=video_converted,
+                        video_skipped=video_skipped,
+                        other_copied=other_copied,
+                    )
+                except Exception as exc:  # pylint: disable=broad-except
+                    self._log(f"Failed to copy other file {source}: {exc}")
         if mapping:
             self.mapping = mapping
             self.compare_btn.configure(state=tk.NORMAL)
             self._save_mapping(mapping, job)
-        self._log(f"Done. Converted {converted} file(s). Skipped {skipped}.")
+        skipped_or_copied = image_skipped + video_skipped
+        converted_total = image_converted + video_converted
+        self._log(
+            "Done. Converted {converted_total} file(s). Skipped/Just Copied {skipped_or_copied}. Other files copied {other_copied}.".format(
+                converted_total=converted_total,
+                skipped_or_copied=skipped_or_copied,
+                other_copied=other_copied,
+            )
+        )
         self._finish_conversion()
 
     def _finish_conversion(self) -> None:
@@ -551,10 +637,17 @@ class MediaConverterApp:
         self.root.after(200, self._poll_log_queue)
 
     # --- Conversion helpers ----------------------------------------------
-    def _gather_files(self, image_formats: Sequence[str], video_formats: Sequence[str]) -> List[Tuple[str, str, str]]:
+    def _gather_files(
+        self,
+        image_formats: Sequence[str],
+        video_formats: Sequence[str],
+        *,
+        include_other: bool = False,
+    ) -> Tuple[List[Tuple[str, str, str]], List[Tuple[str, str]]]:
         wanted_image = {self._normalize_format(fmt) for fmt in image_formats}
         wanted_video = {self._normalize_format(fmt) for fmt in video_formats}
-        results: List[Tuple[str, str, str]] = []
+        media_results: List[Tuple[str, str, str]] = []
+        other_results: List[Tuple[str, str]] = []
         seen: set = set()
         for item in self.sources:
             if item.kind == "folder":
@@ -564,19 +657,29 @@ class MediaConverterApp:
                         ext = os.path.splitext(filename)[1].lower()
                         full_path = os.path.join(root, filename)
                         media_type = self._media_type_for_extension(ext, wanted_image, wanted_video)
-                        if media_type and full_path not in seen:
-                            rel_inside = os.path.relpath(full_path, item.path)
-                            rel_path = os.path.join(root_name, rel_inside)
-                            results.append((full_path, rel_path, media_type))
+                        if full_path in seen:
+                            continue
+                        rel_inside = os.path.relpath(full_path, item.path)
+                        rel_path = os.path.join(root_name, rel_inside)
+                        if media_type:
+                            media_results.append((full_path, rel_path, media_type))
+                            seen.add(full_path)
+                        elif include_other:
+                            other_results.append((full_path, rel_path))
                             seen.add(full_path)
             else:
                 ext = os.path.splitext(item.path)[1].lower()
                 media_type = self._media_type_for_extension(ext, wanted_image, wanted_video)
-                if media_type and item.path not in seen:
-                    rel_path = os.path.basename(item.path)
-                    results.append((item.path, rel_path, media_type))
+                if item.path in seen:
+                    continue
+                rel_path = os.path.basename(item.path)
+                if media_type:
+                    media_results.append((item.path, rel_path, media_type))
                     seen.add(item.path)
-        return results
+                elif include_other:
+                    other_results.append((item.path, rel_path))
+                    seen.add(item.path)
+        return media_results, other_results
 
     def _find_binary(self, name: str) -> Optional[str]:
         candidate = shutil.which(name)
@@ -689,7 +792,9 @@ class MediaConverterApp:
         if not self.ffmpeg_path:
             raise RuntimeError("ffmpeg is not available.")
         target_long_side = int(config["target_long_side"])
-        scale_filter = f"scale=if(gt(iw,ih),{target_long_side},-2):if(gt(iw,ih),-2,{target_long_side})"
+        scale_filter = (
+            f"scale='if(gt(iw,ih),{target_long_side},-2)':'if(gt(iw,ih),-2,{target_long_side})'"
+        )
         cmd = [
             self.ffmpeg_path,
             "-y",
@@ -718,6 +823,7 @@ class MediaConverterApp:
             "image_config": self._serialize_config(job["image"]),
             "video_config": self._serialize_config(job["video"]),
             "small_file_action": job["small_file_action"],
+            "copy_other_files": job.get("copy_other_files", False),
             "entries": mapping,
         }
         path = Path(self.target_folder) / "conversion_map.json"
@@ -740,17 +846,32 @@ class MediaConverterApp:
         self,
         *,
         total: Optional[int] = None,
-        processed_image: Optional[int] = None,
-        processed_video: Optional[int] = None,
+        image_converted: Optional[int] = None,
+        image_skipped: Optional[int] = None,
+        video_converted: Optional[int] = None,
+        video_skipped: Optional[int] = None,
+        other_copied: Optional[int] = None,
     ) -> None:
         def update() -> None:
             if total is not None:
                 self.total_files_var.set(total)
-            if processed_image is not None:
-                self.processed_images_var.set(processed_image)
-            if processed_video is not None:
-                self.processed_videos_var.set(processed_video)
-            total_processed = self.processed_images_var.get() + self.processed_videos_var.get()
+            if image_converted is not None:
+                self.processed_images_var.set(image_converted)
+            if image_skipped is not None:
+                self.image_skipped_var.set(image_skipped)
+            if video_converted is not None:
+                self.processed_videos_var.set(video_converted)
+            if video_skipped is not None:
+                self.video_skipped_var.set(video_skipped)
+            if other_copied is not None:
+                self.other_files_var.set(other_copied)
+            total_processed = (
+                self.processed_images_var.get()
+                + self.image_skipped_var.get()
+                + self.processed_videos_var.get()
+                + self.video_skipped_var.get()
+                + self.other_files_var.get()
+            )
             self.total_processed_var.set(total_processed)
 
         self.root.after(0, update)
