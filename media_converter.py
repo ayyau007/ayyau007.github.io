@@ -1013,6 +1013,7 @@ class ComparisonView(tk.Toplevel):
         self.scales: Dict[str, float] = {"source": 1.0, "dest": 1.0}
         self.fit_mode = False
         self.fit_scales: Dict[str, float] = {"source": 1.0, "dest": 1.0}
+        self.base_dimensions: Dict[str, Tuple[int, int]] = {"source": (0, 0), "dest": (0, 0)}
         self.metadata: Dict[str, Dict[str, str]] = {"source": {}, "dest": {}}
         self.media_types: Dict[str, str] = {"source": "image", "dest": "image"}
         self.video_info: Dict[str, Dict[str, float]] = {}
@@ -1136,6 +1137,7 @@ class ComparisonView(tk.Toplevel):
         self.fit_mode = False
         self.fit_scales = {"source": 1.0, "dest": 1.0}
         self.scales = {"source": 1.0, "dest": 1.0}
+        self.base_dimensions = {"source": (0, 0), "dest": (0, 0)}
         self.current_paths = {"source": entry["source"], "dest": entry["dest"]}
         self.video_info.clear()
         self.media_types = {"source": "image", "dest": "image"}
@@ -1159,6 +1161,12 @@ class ComparisonView(tk.Toplevel):
                 width = info.get("width") if info else None
                 height = info.get("height") if info else None
                 dimensions = (int(width), int(height)) if width and height else None
+                if dimensions:
+                    self.base_dimensions[key] = dimensions
+                elif self.images[key] is not None:
+                    self.base_dimensions[key] = self.images[key].size
+                else:
+                    self.base_dimensions[key] = (0, 0)
                 self.metadata[key] = self._build_metadata(
                     path,
                     self.images[key],
@@ -1167,6 +1175,10 @@ class ComparisonView(tk.Toplevel):
                 )
             else:
                 self.images[key] = self._load_image(path)
+                if self.images[key] is not None:
+                    self.base_dimensions[key] = self.images[key].size
+                else:
+                    self.base_dimensions[key] = (0, 0)
                 self.metadata[key] = self._build_metadata(path, self.images[key])
         self._update_metadata_labels()
         self._configure_playback_controls()
@@ -1482,8 +1494,11 @@ class ComparisonView(tk.Toplevel):
                 canvas.create_text(canvas.winfo_width() / 2, canvas.winfo_height() / 2, fill="white", text="Preview Not Available")
                 continue
             scale = self.fit_scales[key] if self.fit_mode else self.scales.get(key, self.zoom_var.get())
-            width = int(img.width * scale)
-            height = int(img.height * scale)
+            base_width, base_height = self.base_dimensions.get(key, img.size)
+            base_width = base_width or img.width
+            base_height = base_height or img.height
+            width = int(base_width * scale)
+            height = int(base_height * scale)
             resized = img.resize((max(1, width), max(1, height)), Image.LANCZOS)
             photo = ImageTk.PhotoImage(resized)
             self.photo_images[key] = photo
@@ -1664,12 +1679,19 @@ class ComparisonView(tk.Toplevel):
         scales: Dict[str, float] = {}
         for canvas, key in ((self.left_canvas, "source"), (self.right_canvas, "dest")):
             img = self.images.get(key)
-            if img is None or img.width == 0 or img.height == 0:
+            base_width, base_height = self.base_dimensions.get(key, (0, 0))
+            if img is None and (base_width == 0 or base_height == 0):
+                continue
+            if base_width <= 0 or base_height <= 0:
+                if img is None or img.width == 0 or img.height == 0:
+                    continue
+                base_width, base_height = img.width, img.height
+            if base_width == 0 or base_height == 0:
                 continue
             canvas_width = max(canvas.winfo_width(), 1)
             canvas_height = max(canvas.winfo_height(), 1)
-            scale_w = canvas_width / img.width
-            scale_h = canvas_height / img.height
+            scale_w = canvas_width / base_width
+            scale_h = canvas_height / base_height
             scales[key] = max(0.25, min(scale_w, scale_h, 4.0))
         if not scales:
             return {}
