@@ -52,6 +52,19 @@ def format_file_size(num_bytes: Optional[int]) -> str:
     return f"{num_bytes} B"
 
 
+def format_duration(seconds: Optional[float], *, allow_unknown: bool = True) -> str:
+    """Format a duration in seconds into H:MM:SS."""
+
+    if seconds is None or seconds <= 0:
+        return "Unknown" if allow_unknown else "00:00"
+    total_seconds = int(round(seconds))
+    minutes, sec = divmod(total_seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours:d}:{minutes:02d}:{sec:02d}"
+    return f"{minutes:d}:{sec:02d}"
+
+
 class MediaConverterApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
@@ -399,7 +412,12 @@ class MediaConverterApp:
         if not self.mapping:
             messagebox.showinfo("No mapping", "Run a conversion or load a mapping file first.")
             return
-        ComparisonView(self.root, self.mapping, ffmpeg_path=self.ffmpeg_path)
+        ComparisonView(
+            self.root,
+            self.mapping,
+            ffmpeg_path=self.ffmpeg_path,
+            ffprobe_path=self.ffprobe_path,
+        )
 
     def load_mapping_file(self) -> None:
         file_path = filedialog.askopenfilename(title="Select mapping file", filetypes=[("JSON", "*.json")])
@@ -974,6 +992,7 @@ class ComparisonView(tk.Toplevel):
         mapping: Sequence[Dict[str, str]],
         *,
         ffmpeg_path: Optional[str] = None,
+        ffprobe_path: Optional[str] = None,
     ):
         super().__init__(master)
         self.title("Comparison View")
@@ -995,7 +1014,18 @@ class ComparisonView(tk.Toplevel):
         self.fit_mode = False
         self.fit_scales: Dict[str, float] = {"source": 1.0, "dest": 1.0}
         self.metadata: Dict[str, Dict[str, str]] = {"source": {}, "dest": {}}
+        self.media_types: Dict[str, str] = {"source": "image", "dest": "image"}
+        self.video_info: Dict[str, Dict[str, float]] = {}
+        self.last_video_frame_time: Dict[str, Optional[float]] = {"source": None, "dest": None}
+        self.playback_var = tk.DoubleVar(value=0.0)
+        self.playback_duration = 0.0
+        self._suppress_playback_callback = False
+        self._playback_job: Optional[str] = None
+        self._playback_active = False
+        self.playback_fps = 5.0
+        self.current_paths: Dict[str, str] = {"source": "", "dest": ""}
         self.ffmpeg_path = ffmpeg_path or shutil.which("ffmpeg")
+        self.ffprobe_path = ffprobe_path or shutil.which("ffprobe")
 
         self._build_ui()
         if self.mapping:
@@ -1071,6 +1101,28 @@ class ComparisonView(tk.Toplevel):
         ttk.Button(controls, text="Fit to Window", command=self._fit_to_window).pack(side=tk.LEFT)
         ttk.Button(controls, text="Close", command=self.destroy).pack(side=tk.RIGHT)
 
+        playback = ttk.Frame(viewer_frame)
+        playback.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(playback, text="Playback").pack(side=tk.LEFT)
+        self.play_button = ttk.Button(playback, text="Play", command=self._start_playback, state=tk.DISABLED)
+        self.play_button.pack(side=tk.LEFT, padx=(10, 0))
+        self.pause_button = ttk.Button(playback, text="Pause", command=self._pause_playback, state=tk.DISABLED)
+        self.pause_button.pack(side=tk.LEFT, padx=5)
+        self.stop_button = ttk.Button(playback, text="Stop", command=self._stop_playback, state=tk.DISABLED)
+        self.stop_button.pack(side=tk.LEFT)
+        self.playback_scale = ttk.Scale(
+            playback,
+            from_=0.0,
+            to=1.0,
+            orient=tk.HORIZONTAL,
+            variable=self.playback_var,
+            command=self._on_playback_scrub,
+        )
+        self.playback_scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10)
+        self.playback_scale.state(["disabled"])
+        self.playback_label = ttk.Label(playback, text="00:00 / 00:00")
+        self.playback_label.pack(side=tk.LEFT)
+
     def _load_pair(self, index: int) -> None:
         if not (0 <= index < len(self.mapping)):
             return
@@ -1084,34 +1136,244 @@ class ComparisonView(tk.Toplevel):
         self.fit_mode = False
         self.fit_scales = {"source": 1.0, "dest": 1.0}
         self.scales = {"source": 1.0, "dest": 1.0}
-        for key, path in (("source", entry["source"]), ("dest", entry["dest"])):
-            self.images[key] = self._load_image(path)
-            self.metadata[key] = self._build_metadata(path, self.images[key])
+        self.current_paths = {"source": entry["source"], "dest": entry["dest"]}
+        self.video_info.clear()
+        self.media_types = {"source": "image", "dest": "image"}
+        self.last_video_frame_time = {"source": None, "dest": None}
+        self.playback_duration = 0.0
+        self._cancel_playback()
+        self._set_playback_time(0.0, update_frames=False)
+        for key, path in self.current_paths.items():
+            ext = os.path.splitext(path)[1].lower()
+            if ext in VIDEO_FORMATS:
+                self.media_types[key] = "video"
+                info = self._probe_video_info(path)
+                if info:
+                    self.video_info[key] = info
+                    duration = info.get("duration") or 0.0
+                    self.playback_duration = max(self.playback_duration, duration)
+                else:
+                    duration = None
+                self.images[key] = self._load_image(path, timestamp=0.0)
+                self.metadata[key] = self._build_metadata(path, self.images[key], info.get("duration") if info else None)
+            else:
+                self.images[key] = self._load_image(path)
+                self.metadata[key] = self._build_metadata(path, self.images[key])
         self._update_metadata_labels()
+        self._configure_playback_controls()
         self._fit_to_window()
 
-    def _build_metadata(self, path: str, img: Optional[Image.Image]) -> Dict[str, str]:
+    def _build_metadata(
+        self,
+        path: str,
+        img: Optional[Image.Image],
+        video_duration: Optional[float] = None,
+    ) -> Dict[str, str]:
         resolution = f"{img.width}x{img.height}" if img else "N/A"
         try:
             size_bytes = os.path.getsize(path)
         except OSError:
             size_bytes = None
-        return {
+        meta = {
             "path": path,
             "resolution": resolution,
             "size": format_file_size(size_bytes),
         }
+        if video_duration:
+            meta["duration"] = format_duration(video_duration)
+        return meta
 
     def _format_metadata_text(self, meta: Dict[str, str]) -> str:
         if not meta:
             return ""
-        return f"{meta.get('path', '')}\n{meta.get('resolution', 'N/A')} | {meta.get('size', 'Unknown')}"
+        base = f"{meta.get('resolution', 'N/A')} | {meta.get('size', 'Unknown')}"
+        duration = meta.get("duration")
+        if duration and duration != "Unknown":
+            base = f"{base} | {duration}"
+        return f"{meta.get('path', '')}\n{base}"
 
     def _update_metadata_labels(self) -> None:
         self.left_info_label.config(text=self._format_metadata_text(self.metadata.get("source", {})))
         self.right_info_label.config(text=self._format_metadata_text(self.metadata.get("dest", {})))
 
-    def _load_image(self, path: str) -> Optional[Image.Image]:
+    def _configure_playback_controls(self) -> None:
+        has_video = self._has_video()
+        if not has_video or self.playback_duration <= 0:
+            self._enable_playback_controls(False)
+            self.playback_label.config(text="00:00 / 00:00")
+            self.playback_scale.configure(from_=0.0, to=1.0)
+            return
+        self.playback_scale.configure(from_=0.0, to=self.playback_duration)
+        self._enable_playback_controls(True)
+        self._set_playback_time(0.0, update_frames=False)
+        self._update_playback_label()
+
+    def _enable_playback_controls(self, enabled: bool) -> None:
+        state = tk.NORMAL if enabled else tk.DISABLED
+        for widget in (self.play_button, self.pause_button, self.stop_button):
+            widget.config(state=state)
+        if enabled:
+            self.playback_scale.state(["!disabled"])
+        else:
+            self.playback_scale.state(["disabled"])
+
+    def _update_playback_label(self) -> None:
+        current = format_duration(self.playback_var.get(), allow_unknown=False)
+        total = format_duration(self.playback_duration, allow_unknown=False)
+        self.playback_label.config(text=f"{current} / {total}")
+
+    def _set_playback_time(self, value: float, *, update_frames: bool = True) -> None:
+        if not self._has_video():
+            self.playback_var.set(0.0)
+            self._update_playback_label()
+            return
+        max_value = self.playback_duration if self.playback_duration > 0 else value
+        clamped = max(0.0, min(value, max_value))
+        self._suppress_playback_callback = True
+        self.playback_var.set(clamped)
+        self._suppress_playback_callback = False
+        self._update_playback_label()
+        if update_frames:
+            self._update_video_frames(clamped)
+
+    def _start_playback(self) -> None:
+        if not self._has_video() or self.playback_duration <= 0:
+            return
+        if self._playback_active:
+            return
+        self._playback_active = True
+        self._advance_playback()
+
+    def _pause_playback(self) -> None:
+        self._playback_active = False
+        self._cancel_playback()
+
+    def _stop_playback(self) -> None:
+        self._pause_playback()
+        self._set_playback_time(0.0)
+
+    def _advance_playback(self) -> None:
+        if not self._playback_active:
+            return
+        step = 1.0 / self.playback_fps if self.playback_fps > 0 else 0.2
+        new_time = self.playback_var.get() + step
+        if new_time >= self.playback_duration:
+            self._set_playback_time(self.playback_duration)
+            self._playback_active = False
+            return
+        self._set_playback_time(new_time)
+        interval = int(max(1, round(1000 / self.playback_fps)))
+        self._playback_job = self.after(interval, self._advance_playback)
+
+    def _on_playback_scrub(self, value: str) -> None:
+        if self._suppress_playback_callback or not self._has_video():
+            return
+        try:
+            timestamp = float(value)
+        except (TypeError, ValueError):
+            return
+        self._pause_playback()
+        self._set_playback_time(timestamp)
+
+    def _update_video_frames(self, timestamp: float) -> None:
+        updated = False
+        for key, media_type in self.media_types.items():
+            if media_type != "video":
+                continue
+            path = self.current_paths.get(key)
+            if not path:
+                continue
+            info = self.video_info.get(key, {})
+            duration = info.get("duration")
+            target_time = timestamp
+            if duration is not None:
+                target_time = max(0.0, min(timestamp, duration))
+            last_time = self.last_video_frame_time.get(key)
+            if last_time is not None and abs(last_time - target_time) < 1e-3:
+                continue
+            frame = self._extract_video_frame(path, target_time)
+            if frame is None:
+                continue
+            self.images[key] = frame
+            self.last_video_frame_time[key] = target_time
+            updated = True
+        if updated:
+            self._render()
+
+    def _has_video(self) -> bool:
+        return any(media_type == "video" for media_type in self.media_types.values())
+
+    def _cancel_playback(self) -> None:
+        if self._playback_job is not None:
+            try:
+                self.after_cancel(self._playback_job)
+            except Exception:  # pylint: disable=broad-except
+                pass
+        self._playback_job = None
+        self._playback_active = False
+
+    def destroy(self) -> None:  # type: ignore[override]
+        self._cancel_playback()
+        super().destroy()
+
+    def _probe_video_info(self, path: str) -> Dict[str, float]:
+        ffprobe = self.ffprobe_path or shutil.which("ffprobe")
+        if not ffprobe:
+            return {}
+        cmd = [
+            ffprobe,
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height,duration,r_frame_rate:format=duration",
+            "-of",
+            "json",
+            path,
+        ]
+        try:
+            result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            payload = result.stdout.decode("utf-8") if result.stdout else "{}"
+            data = json.loads(payload)
+        except Exception:  # pylint: disable=broad-except
+            return {}
+        info: Dict[str, float] = {}
+        streams = data.get("streams") or []
+        if streams:
+            stream = streams[0]
+            width = stream.get("width")
+            height = stream.get("height")
+            if isinstance(width, int):
+                info["width"] = float(width)
+            if isinstance(height, int):
+                info["height"] = float(height)
+            duration = stream.get("duration")
+            if duration:
+                try:
+                    info["duration"] = float(duration)
+                except (TypeError, ValueError):
+                    info["duration"] = 0.0
+            fps_value = stream.get("r_frame_rate")
+            if isinstance(fps_value, str) and "/" in fps_value:
+                num, denom = fps_value.split("/", maxsplit=1)
+                try:
+                    fps = float(num) / float(denom)
+                    if fps > 0:
+                        info["fps"] = fps
+                except (TypeError, ValueError, ZeroDivisionError):
+                    pass
+        format_section = data.get("format")
+        if format_section and not info.get("duration"):
+            duration = format_section.get("duration")
+            if duration:
+                try:
+                    info["duration"] = float(duration)
+                except (TypeError, ValueError):
+                    info["duration"] = 0.0
+        return info
+
+    def _load_image(self, path: str, timestamp: float = 0.0) -> Optional[Image.Image]:
         ext = os.path.splitext(path)[1].lower()
         if ext in IMAGE_FORMATS:
             try:
@@ -1121,11 +1383,11 @@ class ComparisonView(tk.Toplevel):
                 messagebox.showerror("Preview", f"Could not open {path}: {exc}")
                 return None
         if ext in VIDEO_FORMATS:
-            return self._extract_video_frame(path)
+            return self._extract_video_frame(path, timestamp)
         messagebox.showinfo("Preview", f"Cannot preview this file type: {path}")
         return None
 
-    def _extract_video_frame(self, path: str) -> Optional[Image.Image]:
+    def _extract_video_frame(self, path: str, timestamp: float = 0.0) -> Optional[Image.Image]:
         ffmpeg = self.ffmpeg_path or shutil.which("ffmpeg")
         if not ffmpeg:
             messagebox.showinfo(
@@ -1138,6 +1400,10 @@ class ComparisonView(tk.Toplevel):
             "-hide_banner",
             "-loglevel",
             "error",
+        ]
+        if timestamp > 0:
+            cmd.extend(["-ss", f"{timestamp:.3f}"])
+        cmd.extend([
             "-i",
             path,
             "-frames:v",
@@ -1147,7 +1413,7 @@ class ComparisonView(tk.Toplevel):
             "-vcodec",
             "png",
             "-",
-        ]
+        ])
         try:
             result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if not result.stdout:
