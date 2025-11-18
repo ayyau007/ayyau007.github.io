@@ -1144,6 +1144,7 @@ class ComparisonView(tk.Toplevel):
         self._cancel_playback()
         self._set_playback_time(0.0, update_frames=False)
         for key, path in self.current_paths.items():
+            canvas_size = self._get_canvas_size_for_key(key)
             ext = os.path.splitext(path)[1].lower()
             if ext in VIDEO_FORMATS:
                 self.media_types[key] = "video"
@@ -1154,8 +1155,16 @@ class ComparisonView(tk.Toplevel):
                     self.playback_duration = max(self.playback_duration, duration)
                 else:
                     duration = None
-                self.images[key] = self._load_image(path, timestamp=0.0)
-                self.metadata[key] = self._build_metadata(path, self.images[key], info.get("duration") if info else None)
+                self.images[key] = self._load_image(path, timestamp=0.0, target_size=canvas_size)
+                width = info.get("width") if info else None
+                height = info.get("height") if info else None
+                dimensions = (int(width), int(height)) if width and height else None
+                self.metadata[key] = self._build_metadata(
+                    path,
+                    self.images[key],
+                    info.get("duration") if info else None,
+                    video_dimensions=dimensions,
+                )
             else:
                 self.images[key] = self._load_image(path)
                 self.metadata[key] = self._build_metadata(path, self.images[key])
@@ -1168,8 +1177,14 @@ class ComparisonView(tk.Toplevel):
         path: str,
         img: Optional[Image.Image],
         video_duration: Optional[float] = None,
+        video_dimensions: Optional[Tuple[int, int]] = None,
     ) -> Dict[str, str]:
-        resolution = f"{img.width}x{img.height}" if img else "N/A"
+        if video_dimensions and all(video_dimensions):
+            resolution = f"{video_dimensions[0]}x{video_dimensions[1]}"
+        elif img:
+            resolution = f"{img.width}x{img.height}"
+        else:
+            resolution = "N/A"
         try:
             size_bytes = os.path.getsize(path)
         except OSError:
@@ -1291,7 +1306,11 @@ class ComparisonView(tk.Toplevel):
             last_time = self.last_video_frame_time.get(key)
             if last_time is not None and abs(last_time - target_time) < 1e-3:
                 continue
-            frame = self._extract_video_frame(path, target_time)
+            frame = self._extract_video_frame(
+                path,
+                target_time,
+                target_size=self._get_canvas_size_for_key(key),
+            )
             if frame is None:
                 continue
             self.images[key] = frame
@@ -1373,7 +1392,12 @@ class ComparisonView(tk.Toplevel):
                     info["duration"] = 0.0
         return info
 
-    def _load_image(self, path: str, timestamp: float = 0.0) -> Optional[Image.Image]:
+    def _load_image(
+        self,
+        path: str,
+        timestamp: float = 0.0,
+        target_size: Optional[Tuple[int, int]] = None,
+    ) -> Optional[Image.Image]:
         ext = os.path.splitext(path)[1].lower()
         if ext in IMAGE_FORMATS:
             try:
@@ -1383,11 +1407,16 @@ class ComparisonView(tk.Toplevel):
                 messagebox.showerror("Preview", f"Could not open {path}: {exc}")
                 return None
         if ext in VIDEO_FORMATS:
-            return self._extract_video_frame(path, timestamp)
+            return self._extract_video_frame(path, timestamp, target_size=target_size)
         messagebox.showinfo("Preview", f"Cannot preview this file type: {path}")
         return None
 
-    def _extract_video_frame(self, path: str, timestamp: float = 0.0) -> Optional[Image.Image]:
+    def _extract_video_frame(
+        self,
+        path: str,
+        timestamp: float = 0.0,
+        target_size: Optional[Tuple[int, int]] = None,
+    ) -> Optional[Image.Image]:
         ffmpeg = self.ffmpeg_path or shutil.which("ffmpeg")
         if not ffmpeg:
             messagebox.showinfo(
@@ -1400,20 +1429,33 @@ class ComparisonView(tk.Toplevel):
             "-hide_banner",
             "-loglevel",
             "error",
+            "-nostdin",
         ]
         if timestamp > 0:
             cmd.extend(["-ss", f"{timestamp:.3f}"])
-        cmd.extend([
-            "-i",
-            path,
-            "-frames:v",
-            "1",
-            "-f",
-            "image2pipe",
-            "-vcodec",
-            "png",
-            "-",
-        ])
+        cmd.extend(["-i", path])
+        if target_size:
+            width = max(1, int(target_size[0]))
+            height = max(1, int(target_size[1]))
+            cmd.extend(
+                [
+                    "-vf",
+                    f"scale=w={width}:h={height}:force_original_aspect_ratio=decrease",
+                ]
+            )
+        cmd.extend(
+            [
+                "-frames:v",
+                "1",
+                "-f",
+                "image2pipe",
+                "-vcodec",
+                "mjpeg",
+                "-q:v",
+                "2",
+                "-",
+            ]
+        )
         try:
             result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if not result.stdout:
@@ -1423,6 +1465,14 @@ class ComparisonView(tk.Toplevel):
         except Exception as exc:  # pylint: disable=broad-except
             messagebox.showerror("Preview", f"Could not preview video {path}: {exc}")
             return None
+
+    def _get_canvas_size_for_key(self, key: str) -> Tuple[int, int]:
+        canvas = self.left_canvas if key == "source" else self.right_canvas
+        width = canvas.winfo_width()
+        height = canvas.winfo_height()
+        if width <= 1 or height <= 1:
+            return (800, 600)
+        return (width, height)
 
     def _render(self) -> None:
         for canvas, key in ((self.left_canvas, "source"), (self.right_canvas, "dest")):
