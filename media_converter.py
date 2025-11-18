@@ -82,6 +82,9 @@ class MediaConverterApp:
         self._dependency_button: Optional[ttk.Button] = None
 
         self.copy_other_files_var = tk.BooleanVar(value=False)
+        self._control_widgets: List[tk.Widget] = []
+        self._control_states: Dict[tk.Widget, str] = {}
+        self._conversion_active = False
 
         self._build_ui()
         self._poll_log_queue()
@@ -100,17 +103,25 @@ class MediaConverterApp:
 
         btn_frame = ttk.Frame(selection_frame)
         btn_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(btn_frame, text="Add Folder", command=self.add_folder).pack(side=tk.LEFT)
-        ttk.Button(btn_frame, text="Add Files", command=self.add_files).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Remove Selected", command=self.remove_selected).pack(side=tk.LEFT)
+        add_folder_btn = ttk.Button(btn_frame, text="Add Folder", command=self.add_folder)
+        add_folder_btn.pack(side=tk.LEFT)
+        self._register_control(add_folder_btn)
+        add_files_btn = ttk.Button(btn_frame, text="Add Files", command=self.add_files)
+        add_files_btn.pack(side=tk.LEFT, padx=5)
+        self._register_control(add_files_btn)
+        remove_btn = ttk.Button(btn_frame, text="Remove Selected", command=self.remove_selected)
+        remove_btn.pack(side=tk.LEFT)
+        self._register_control(remove_btn)
 
         self.source_list = tk.Listbox(selection_frame, height=6)
         self.source_list.pack(fill=tk.BOTH, expand=True)
 
         target_frame = ttk.LabelFrame(source_target_frame, text="Target", padding=10)
         target_frame.grid(row=0, column=1, sticky=tk.NSEW)
-        ttk.Button(target_frame, text="Choose target folder", command=self.choose_target_folder).pack(anchor=tk.W)
-        self.target_label = ttk.Label(target_frame, text="No folder selected", foreground="gray", wraplength=280)
+        choose_target_btn = ttk.Button(target_frame, text="Choose Target Folder", command=self.choose_target_folder)
+        choose_target_btn.pack(anchor=tk.W)
+        self._register_control(choose_target_btn)
+        self.target_label = ttk.Label(target_frame, text="No Folder Selected", foreground="gray", wraplength=280)
         self.target_label.pack(fill=tk.X, pady=(5, 0))
 
         source_target_frame.columnconfigure(0, weight=3)
@@ -126,33 +137,49 @@ class MediaConverterApp:
 
         image_frame = ttk.LabelFrame(options_frame, text="Image Conversion", padding=10)
         image_frame.grid(row=0, column=0, sticky=tk.NSEW, padx=(0, 10))
-        ttk.Checkbutton(image_frame, text="Enable image conversion", variable=self.enable_image_var).grid(row=0, column=0, columnspan=2, sticky=tk.W)
-        ttk.Label(image_frame, text="Original format").grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
+        image_check = ttk.Checkbutton(image_frame, text="Enable Image Conversion", variable=self.enable_image_var)
+        image_check.grid(row=0, column=0, columnspan=2, sticky=tk.W)
+        self._register_control(image_check)
+        ttk.Label(image_frame, text="Original Format").grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
         image_source_options = ["All Images"] + [fmt.upper() for fmt in IMAGE_FORMAT_CHOICES]
         self.image_source_var = tk.StringVar(value=image_source_options[0])
-        ttk.Combobox(image_frame, textvariable=self.image_source_var, state="readonly", values=image_source_options).grid(row=1, column=1, sticky=tk.EW, padx=(10, 0), pady=(5, 0))
-        ttk.Label(image_frame, text="Target format").grid(row=2, column=0, sticky=tk.W, pady=(5, 0))
+        image_source_combo = ttk.Combobox(image_frame, textvariable=self.image_source_var, state="readonly", values=image_source_options)
+        image_source_combo.grid(row=1, column=1, sticky=tk.EW, padx=(10, 0), pady=(5, 0))
+        self._register_control(image_source_combo)
+        ttk.Label(image_frame, text="Target Format").grid(row=2, column=0, sticky=tk.W, pady=(5, 0))
         self.image_target_var = tk.StringVar(value="JPG")
-        ttk.Combobox(image_frame, textvariable=self.image_target_var, state="readonly", values=[fmt.upper() for fmt in IMAGE_FORMAT_CHOICES]).grid(row=2, column=1, sticky=tk.EW, padx=(10, 0), pady=(5, 0))
-        ttk.Label(image_frame, text="Target long side").grid(row=3, column=0, sticky=tk.W, pady=(5, 0))
+        image_target_combo = ttk.Combobox(image_frame, textvariable=self.image_target_var, state="readonly", values=[fmt.upper() for fmt in IMAGE_FORMAT_CHOICES])
+        image_target_combo.grid(row=2, column=1, sticky=tk.EW, padx=(10, 0), pady=(5, 0))
+        self._register_control(image_target_combo)
+        ttk.Label(image_frame, text="Target Long Side").grid(row=3, column=0, sticky=tk.W, pady=(5, 0))
         self.image_resolution_var = tk.StringVar(value=RESOLUTION_CHOICES[2])
-        ttk.Combobox(image_frame, textvariable=self.image_resolution_var, state="readonly", values=RESOLUTION_CHOICES).grid(row=3, column=1, sticky=tk.EW, padx=(10, 0), pady=(5, 0))
+        image_resolution_combo = ttk.Combobox(image_frame, textvariable=self.image_resolution_var, state="readonly", values=RESOLUTION_CHOICES)
+        image_resolution_combo.grid(row=3, column=1, sticky=tk.EW, padx=(10, 0), pady=(5, 0))
+        self._register_control(image_resolution_combo)
         for i in range(2):
             image_frame.columnconfigure(i, weight=1)
 
         video_frame = ttk.LabelFrame(options_frame, text="Video Conversion", padding=10)
         video_frame.grid(row=0, column=1, sticky=tk.NSEW)
-        ttk.Checkbutton(video_frame, text="Enable video conversion", variable=self.enable_video_var).grid(row=0, column=0, columnspan=2, sticky=tk.W)
-        ttk.Label(video_frame, text="Original format").grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
+        video_check = ttk.Checkbutton(video_frame, text="Enable Video Conversion", variable=self.enable_video_var)
+        video_check.grid(row=0, column=0, columnspan=2, sticky=tk.W)
+        self._register_control(video_check)
+        ttk.Label(video_frame, text="Original Format").grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
         video_source_options = ["All Videos"] + [fmt.upper() for fmt in VIDEO_FORMAT_CHOICES]
         self.video_source_var = tk.StringVar(value=video_source_options[0])
-        ttk.Combobox(video_frame, textvariable=self.video_source_var, state="readonly", values=video_source_options).grid(row=1, column=1, sticky=tk.EW, padx=(10, 0), pady=(5, 0))
-        ttk.Label(video_frame, text="Target format").grid(row=2, column=0, sticky=tk.W, pady=(5, 0))
+        video_source_combo = ttk.Combobox(video_frame, textvariable=self.video_source_var, state="readonly", values=video_source_options)
+        video_source_combo.grid(row=1, column=1, sticky=tk.EW, padx=(10, 0), pady=(5, 0))
+        self._register_control(video_source_combo)
+        ttk.Label(video_frame, text="Target Format").grid(row=2, column=0, sticky=tk.W, pady=(5, 0))
         self.video_target_var = tk.StringVar(value="MP4")
-        ttk.Combobox(video_frame, textvariable=self.video_target_var, state="readonly", values=[fmt.upper() for fmt in VIDEO_FORMAT_CHOICES]).grid(row=2, column=1, sticky=tk.EW, padx=(10, 0), pady=(5, 0))
-        ttk.Label(video_frame, text="Target long side").grid(row=3, column=0, sticky=tk.W, pady=(5, 0))
+        video_target_combo = ttk.Combobox(video_frame, textvariable=self.video_target_var, state="readonly", values=[fmt.upper() for fmt in VIDEO_FORMAT_CHOICES])
+        video_target_combo.grid(row=2, column=1, sticky=tk.EW, padx=(10, 0), pady=(5, 0))
+        self._register_control(video_target_combo)
+        ttk.Label(video_frame, text="Target Long Side").grid(row=3, column=0, sticky=tk.W, pady=(5, 0))
         self.video_resolution_var = tk.StringVar(value=RESOLUTION_CHOICES[2])
-        ttk.Combobox(video_frame, textvariable=self.video_resolution_var, state="readonly", values=RESOLUTION_CHOICES).grid(row=3, column=1, sticky=tk.EW, padx=(10, 0), pady=(5, 0))
+        video_resolution_combo = ttk.Combobox(video_frame, textvariable=self.video_resolution_var, state="readonly", values=RESOLUTION_CHOICES)
+        video_resolution_combo.grid(row=3, column=1, sticky=tk.EW, padx=(10, 0), pady=(5, 0))
+        self._register_control(video_resolution_combo)
         for i in range(2):
             video_frame.columnconfigure(i, weight=1)
 
@@ -160,38 +187,56 @@ class MediaConverterApp:
         options_frame.columnconfigure(1, weight=1)
 
         self.small_file_action_var = tk.StringVar(value="Skip")
-        small_frame = ttk.LabelFrame(main, text="Files that are smaller than long side", padding=10)
-        small_frame.pack(fill=tk.X, pady=5)
+        small_other_container = ttk.Frame(main)
+        small_other_container.pack(fill=tk.X, pady=5)
+
+        small_frame = ttk.LabelFrame(
+            small_other_container, text="Files That Are Smaller Than Long Side", padding=10
+        )
+        small_frame.grid(row=0, column=0, sticky=tk.NSEW, padx=(0, 10))
         ttk.Label(small_frame, text="Action").grid(row=0, column=0, sticky=tk.W)
-        ttk.Combobox(
+        small_action_combo = ttk.Combobox(
             small_frame,
             textvariable=self.small_file_action_var,
             state="readonly",
             values=["Skip", "Just Copy"],
-        ).grid(row=0, column=1, sticky=tk.W, padx=(10, 0))
+        )
+        small_action_combo.grid(row=0, column=1, sticky=tk.W, padx=(10, 0))
+        self._register_control(small_action_combo)
         small_frame.columnconfigure(1, weight=1)
 
-        other_frame = ttk.LabelFrame(main, text="Other Files", padding=10)
-        other_frame.pack(fill=tk.X, pady=5)
-        ttk.Checkbutton(
+        other_frame = ttk.LabelFrame(small_other_container, text="Other Files", padding=10)
+        other_frame.grid(row=0, column=1, sticky=tk.NSEW)
+        other_check = ttk.Checkbutton(
             other_frame,
-            text="Copy non-image and non-video files",
+            text="Copy Non-Image And Non-Video Files",
             variable=self.copy_other_files_var,
-        ).pack(anchor=tk.W)
+        )
+        other_check.pack(anchor=tk.W)
+        self._register_control(other_check)
+
+        small_other_container.columnconfigure(0, weight=1)
+        small_other_container.columnconfigure(1, weight=1)
 
         # Action buttons
         action_frame = ttk.Frame(main)
         action_frame.pack(fill=tk.X, pady=5)
         self.convert_btn = ttk.Button(action_frame, text="Convert", command=self.start_conversion)
         self.convert_btn.pack(side=tk.LEFT)
-        self.compare_btn = ttk.Button(action_frame, text="Open Comparison View", command=self.open_comparison, state=tk.DISABLED)
+        self._register_control(self.convert_btn)
+        self.compare_btn = ttk.Button(
+            action_frame, text="Open Comparison View", command=self.open_comparison, state=tk.DISABLED
+        )
         self.compare_btn.pack(side=tk.LEFT, padx=10)
-        ttk.Button(action_frame, text="Load mapping file", command=self.load_mapping_file).pack(side=tk.LEFT)
+        self._register_control(self.compare_btn)
+        load_mapping_btn = ttk.Button(action_frame, text="Load Mapping File", command=self.load_mapping_file)
+        load_mapping_btn.pack(side=tk.LEFT)
+        self._register_control(load_mapping_btn)
         ttk.Button(action_frame, text="Close", command=self.root.destroy).pack(side=tk.RIGHT)
 
         processing_frame = ttk.LabelFrame(main, text="Processing", padding=10)
         processing_frame.pack(fill=tk.X, pady=5)
-        ttk.Label(processing_frame, text="Total files").grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(processing_frame, text="Total Files").grid(row=0, column=0, sticky=tk.W)
         ttk.Label(processing_frame, textvariable=self.total_files_var).grid(row=0, column=1, sticky=tk.W, padx=(5, 20))
         ttk.Label(processing_frame, text="Processed Image").grid(row=0, column=2, sticky=tk.W)
         ttk.Label(processing_frame, textvariable=self.image_total_var).grid(row=0, column=3, sticky=tk.W, padx=(5, 20))
@@ -219,7 +264,7 @@ class MediaConverterApp:
         ttk.Label(processing_frame, textvariable=self.video_skipped_var).grid(
             row=1, column=7, sticky=tk.W, padx=(5, 0), pady=(5, 0)
         )
-        ttk.Label(processing_frame, text="Other files copied").grid(row=2, column=2, sticky=tk.W, pady=(5, 0))
+        ttk.Label(processing_frame, text="Other Files Copied").grid(row=2, column=2, sticky=tk.W, pady=(5, 0))
         ttk.Label(processing_frame, textvariable=self.other_files_var).grid(
             row=2, column=3, sticky=tk.W, padx=(5, 0), pady=(5, 0)
         )
@@ -234,6 +279,30 @@ class MediaConverterApp:
         scrollbar = ttk.Scrollbar(log_frame, command=self.log_text.yview)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.log_text.configure(yscrollcommand=scrollbar.set)
+
+    def _register_control(self, widget: tk.Widget) -> None:
+        self._control_widgets.append(widget)
+
+    def _set_controls_enabled(self, enabled: bool) -> None:
+        if enabled:
+            for widget, previous in list(self._control_states.items()):
+                try:
+                    widget.configure(state=previous)
+                except tk.TclError:
+                    continue
+            self._control_states.clear()
+        else:
+            self._control_states = {}
+            for widget in self._control_widgets:
+                try:
+                    self._control_states[widget] = widget.cget("state")
+                    widget.configure(state=tk.DISABLED)
+                except tk.TclError:
+                    continue
+
+    def _update_compare_button_state(self) -> None:
+        state = tk.NORMAL if self.mapping and not self._conversion_active else tk.DISABLED
+        self.compare_btn.configure(state=state)
 
     # --- UI callbacks ----------------------------------------------------
     def add_folder(self) -> None:
@@ -317,8 +386,14 @@ class MediaConverterApp:
         }
         if not self._ensure_required_tools(job):
             return
-        self.convert_btn.configure(state=tk.DISABLED)
-        threading.Thread(target=self._run_conversion, args=(job,), daemon=True).start()
+        self._conversion_active = True
+        self._set_controls_enabled(False)
+        try:
+            threading.Thread(target=self._run_conversion, args=(job,), daemon=True).start()
+        except Exception as exc:  # pylint: disable=broad-except
+            self._conversion_active = False
+            self._set_controls_enabled(True)
+            messagebox.showerror("Conversion Error", f"Failed to start conversion: {exc}")
 
     def open_comparison(self) -> None:
         if not self.mapping:
@@ -340,8 +415,7 @@ class MediaConverterApp:
                 for entry in entries
                 if "source" in entry and "dest" in entry
             ]
-            if self.mapping:
-                self.compare_btn.configure(state=tk.NORMAL)
+            self._update_compare_button_state()
             self._log(f"Loaded {len(self.mapping)} mapping entries from {file_path}")
         except Exception as exc:  # pylint: disable=broad-except
             messagebox.showerror("Failed", f"Could not load mapping file: {exc}")
@@ -395,7 +469,7 @@ class MediaConverterApp:
         window = tk.Toplevel(self.root)
         window.title("Install Required Program")
         window.geometry("420x220")
-        ttk.Label(window, text="Missing dependency", font=("TkDefaultFont", 12, "bold")).pack(pady=(10, 5))
+        ttk.Label(window, text="Missing Dependency", font=("TkDefaultFont", 12, "bold")).pack(pady=(10, 5))
         status = tk.StringVar(value=message)
         self._dependency_status = status
         ttk.Label(window, textvariable=status, wraplength=380).pack(padx=10)
@@ -513,98 +587,80 @@ class MediaConverterApp:
         self.ffprobe_path = self._find_binary("ffprobe")
 
     def _run_conversion(self, job: Dict[str, object]) -> None:
-        image_formats = job["image"]["source_formats"] if job["image"]["enabled"] else []
-        video_formats = job["video"]["source_formats"] if job["video"]["enabled"] else []
-        include_other = bool(job.get("copy_other_files"))
-        media_files, other_files = self._gather_files(
-            image_formats, video_formats, include_other=include_other
-        )
-        total_files = len(media_files) + len(other_files)
-        self._update_processing_counts(
-            total=total_files,
-            image_converted=0,
-            image_skipped=0,
-            video_converted=0,
-            video_skipped=0,
-            other_copied=0,
-        )
-        if total_files == 0:
-            self._log("No files matched the requested formats.")
-            self._finish_conversion()
-            return
-        mapping: List[Dict[str, str]] = []
-        image_converted = 0
-        video_converted = 0
-        image_skipped = 0
-        video_skipped = 0
-        other_copied = 0
-        small_action = job.get("small_file_action", "skip")
-        for source, rel_path, media_type in media_files:
-            config = job[media_type]
-            dest_path = self._destination_path(rel_path, config["output_format"])
-            try:
-                smaller = self._is_smaller_than_target(source, config["target_long_side"])
-                if smaller:
-                    if small_action == "skip":
-                        if media_type == "image":
-                            image_skipped += 1
-                        else:
-                            video_skipped += 1
-                        self._log(f"Skipping (smaller): {source}")
-                        self._update_processing_counts(
-                            total=total_files,
-                            image_converted=image_converted,
-                            image_skipped=image_skipped,
-                            video_converted=video_converted,
-                            video_skipped=video_skipped,
-                            other_copied=other_copied,
-                        )
-                        continue
-                    if small_action == "copy":
-                        copy_dest = self._copy_destination_path(rel_path)
-                        os.makedirs(os.path.dirname(copy_dest), exist_ok=True)
-                        shutil.copy2(source, copy_dest)
-                        mapping.append({"source": source, "dest": copy_dest})
-                        self._log(f"Copied (smaller): {source} -> {copy_dest}")
-                        if media_type == "image":
-                            image_skipped += 1
-                        else:
-                            video_skipped += 1
-                        self._update_processing_counts(
-                            total=total_files,
-                            image_converted=image_converted,
-                            image_skipped=image_skipped,
-                            video_converted=video_converted,
-                            video_skipped=video_skipped,
-                            other_copied=other_copied,
-                        )
-                        continue
-                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-                self._convert_file(source, dest_path, media_type, config)
-                mapping.append({"source": source, "dest": dest_path})
-                self._log(f"Converted: {source} -> {dest_path}")
-                if media_type == "image":
-                    image_converted += 1
-                else:
-                    video_converted += 1
-                self._update_processing_counts(
-                    total=total_files,
-                    image_converted=image_converted,
-                    image_skipped=image_skipped,
-                    video_converted=video_converted,
-                    video_skipped=video_skipped,
-                    other_copied=other_copied,
-                )
-            except Exception as exc:  # pylint: disable=broad-except
-                self._log(f"Failed to convert {source}: {exc}")
-        if include_other and other_files:
-            for source, rel_path in other_files:
+        try:
+            image_formats = job["image"]["source_formats"] if job["image"]["enabled"] else []
+            video_formats = job["video"]["source_formats"] if job["video"]["enabled"] else []
+            include_other = bool(job.get("copy_other_files"))
+            media_files, other_files = self._gather_files(
+                image_formats, video_formats, include_other=include_other
+            )
+            total_files = len(media_files) + len(other_files)
+            self._update_processing_counts(
+                total=total_files,
+                image_converted=0,
+                image_skipped=0,
+                video_converted=0,
+                video_skipped=0,
+                other_copied=0,
+            )
+            if total_files == 0:
+                self._log("No files matched the requested formats.")
+                return
+            mapping: List[Dict[str, str]] = []
+            image_converted = 0
+            video_converted = 0
+            image_skipped = 0
+            video_skipped = 0
+            other_copied = 0
+            small_action = job.get("small_file_action", "skip")
+            for source, rel_path, media_type in media_files:
+                config = job[media_type]
+                dest_path = self._destination_path(rel_path, config["output_format"])
                 try:
-                    dest = self._copy_destination_path(rel_path)
-                    os.makedirs(os.path.dirname(dest), exist_ok=True)
-                    shutil.copy2(source, dest)
-                    other_copied += 1
-                    self._log(f"Copied other file: {source} -> {dest}")
+                    smaller = self._is_smaller_than_target(source, config["target_long_side"])
+                    if smaller:
+                        if small_action == "skip":
+                            if media_type == "image":
+                                image_skipped += 1
+                            else:
+                                video_skipped += 1
+                            self._log(f"Skipping (smaller): {source}")
+                            self._update_processing_counts(
+                                total=total_files,
+                                image_converted=image_converted,
+                                image_skipped=image_skipped,
+                                video_converted=video_converted,
+                                video_skipped=video_skipped,
+                                other_copied=other_copied,
+                            )
+                            continue
+                        if small_action == "copy":
+                            copy_dest = self._copy_destination_path(rel_path)
+                            os.makedirs(os.path.dirname(copy_dest), exist_ok=True)
+                            shutil.copy2(source, copy_dest)
+                            mapping.append({"source": source, "dest": copy_dest})
+                            self._log(f"Copied (smaller): {source} -> {copy_dest}")
+                            if media_type == "image":
+                                image_skipped += 1
+                            else:
+                                video_skipped += 1
+                            self._update_processing_counts(
+                                total=total_files,
+                                image_converted=image_converted,
+                                image_skipped=image_skipped,
+                                video_converted=video_converted,
+                                video_skipped=video_skipped,
+                                other_copied=other_copied,
+                            )
+                            continue
+                    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                    self._convert_file(source, dest_path, media_type, config)
+                    mapping.append({"source": source, "dest": dest_path})
+                    self._log(f"Converted: {source} -> {dest_path}")
+                    if media_type == "image":
+                        image_converted += 1
+                    else:
+                        video_converted += 1
                     self._update_processing_counts(
                         total=total_files,
                         image_converted=image_converted,
@@ -614,24 +670,49 @@ class MediaConverterApp:
                         other_copied=other_copied,
                     )
                 except Exception as exc:  # pylint: disable=broad-except
-                    self._log(f"Failed to copy other file {source}: {exc}")
-        if mapping:
-            self.mapping = mapping
-            self.compare_btn.configure(state=tk.NORMAL)
-            self._save_mapping(mapping, job)
-        skipped_or_copied = image_skipped + video_skipped
-        converted_total = image_converted + video_converted
-        self._log(
-            "Done. Converted {converted_total} file(s). Skipped/Just Copied {skipped_or_copied}. Other files copied {other_copied}.".format(
-                converted_total=converted_total,
-                skipped_or_copied=skipped_or_copied,
-                other_copied=other_copied,
+                    self._log(f"Failed to convert {source}: {exc}")
+            if include_other and other_files:
+                for source, rel_path in other_files:
+                    try:
+                        dest = self._copy_destination_path(rel_path)
+                        os.makedirs(os.path.dirname(dest), exist_ok=True)
+                        shutil.copy2(source, dest)
+                        other_copied += 1
+                        self._log(f"Copied other file: {source} -> {dest}")
+                        self._update_processing_counts(
+                            total=total_files,
+                            image_converted=image_converted,
+                            image_skipped=image_skipped,
+                            video_converted=video_converted,
+                            video_skipped=video_skipped,
+                            other_copied=other_copied,
+                        )
+                    except Exception as exc:  # pylint: disable=broad-except
+                        self._log(f"Failed to copy other file {source}: {exc}")
+            if mapping:
+                self.mapping = mapping
+                self._save_mapping(mapping, job)
+            skipped_or_copied = image_skipped + video_skipped
+            converted_total = image_converted + video_converted
+            self._log(
+                "Done. Converted {converted_total} file(s). Skipped/Just Copied {skipped_or_copied}. Other files copied {other_copied}.".format(
+                    converted_total=converted_total,
+                    skipped_or_copied=skipped_or_copied,
+                    other_copied=other_copied,
+                )
             )
-        )
-        self._finish_conversion()
+        except Exception as exc:  # pylint: disable=broad-except
+            self._log(f"Conversion failed: {exc}")
+        finally:
+            self._finish_conversion()
 
     def _finish_conversion(self) -> None:
-        self.root.after(0, lambda: self.convert_btn.configure(state=tk.NORMAL))
+        def restore() -> None:
+            self._conversion_active = False
+            self._set_controls_enabled(True)
+            self._update_compare_button_state()
+
+        self.root.after(0, restore)
 
     def _poll_log_queue(self) -> None:
         while True:
@@ -929,7 +1010,7 @@ class ComparisonView(tk.Toplevel):
 
         list_frame = ttk.Frame(paned)
         paned.add(list_frame, weight=1)
-        ttk.Label(list_frame, text="Converted files").pack(anchor=tk.W)
+        ttk.Label(list_frame, text="Converted Files").pack(anchor=tk.W)
         listbox_container = ttk.Frame(list_frame)
         listbox_container.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
         self.listbox = tk.Listbox(listbox_container, height=20, exportselection=False)
@@ -1082,7 +1163,7 @@ class ComparisonView(tk.Toplevel):
             canvas.delete("all")
             img = self.images[key]
             if img is None:
-                canvas.create_text(canvas.winfo_width() / 2, canvas.winfo_height() / 2, fill="white", text="Preview not available")
+                canvas.create_text(canvas.winfo_width() / 2, canvas.winfo_height() / 2, fill="white", text="Preview Not Available")
                 continue
             scale = self.fit_scales[key] if self.fit_mode else self.scales.get(key, self.zoom_var.get())
             width = int(img.width * scale)
