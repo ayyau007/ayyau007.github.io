@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Media conversion GUI with comparison view."""
+import io
 import json
 import os
 import platform
@@ -63,8 +64,10 @@ class MediaConverterApp:
         self.target_folder: Optional[str] = None
 
         self.total_files_var = tk.IntVar(value=0)
+        self.image_total_var = tk.IntVar(value=0)
         self.processed_images_var = tk.IntVar(value=0)
         self.image_skipped_var = tk.IntVar(value=0)
+        self.video_total_var = tk.IntVar(value=0)
         self.processed_videos_var = tk.IntVar(value=0)
         self.video_skipped_var = tk.IntVar(value=0)
         self.other_files_var = tk.IntVar(value=0)
@@ -191,32 +194,36 @@ class MediaConverterApp:
         ttk.Label(processing_frame, text="Total files").grid(row=0, column=0, sticky=tk.W)
         ttk.Label(processing_frame, textvariable=self.total_files_var).grid(row=0, column=1, sticky=tk.W, padx=(5, 20))
         ttk.Label(processing_frame, text="Processed Image").grid(row=0, column=2, sticky=tk.W)
-        ttk.Label(processing_frame, text="Converted").grid(row=0, column=3, sticky=tk.W)
+        ttk.Label(processing_frame, textvariable=self.image_total_var).grid(row=0, column=3, sticky=tk.W, padx=(5, 20))
+        ttk.Label(processing_frame, text="Converted").grid(row=0, column=4, sticky=tk.W)
         ttk.Label(processing_frame, textvariable=self.processed_images_var).grid(
-            row=0, column=4, sticky=tk.W, padx=(5, 20)
+            row=0, column=5, sticky=tk.W, padx=(5, 20)
         )
-        ttk.Label(processing_frame, text="Skipped/Just Copied").grid(row=0, column=5, sticky=tk.W)
+        ttk.Label(processing_frame, text="Skipped/Just Copied").grid(row=0, column=6, sticky=tk.W)
         ttk.Label(processing_frame, textvariable=self.image_skipped_var).grid(
-            row=0, column=6, sticky=tk.W, padx=(5, 0)
+            row=0, column=7, sticky=tk.W, padx=(5, 0)
         )
         ttk.Label(processing_frame, text="Total Processed").grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
         ttk.Label(processing_frame, textvariable=self.total_processed_var).grid(
             row=1, column=1, sticky=tk.W, padx=(5, 20), pady=(5, 0)
         )
         ttk.Label(processing_frame, text="Processed Video").grid(row=1, column=2, sticky=tk.W, pady=(5, 0))
-        ttk.Label(processing_frame, text="Converted").grid(row=1, column=3, sticky=tk.W, pady=(5, 0))
-        ttk.Label(processing_frame, textvariable=self.processed_videos_var).grid(
-            row=1, column=4, sticky=tk.W, padx=(5, 20), pady=(5, 0)
+        ttk.Label(processing_frame, textvariable=self.video_total_var).grid(
+            row=1, column=3, sticky=tk.W, padx=(5, 20), pady=(5, 0)
         )
-        ttk.Label(processing_frame, text="Skipped/Just Copied").grid(row=1, column=5, sticky=tk.W, pady=(5, 0))
+        ttk.Label(processing_frame, text="Converted").grid(row=1, column=4, sticky=tk.W, pady=(5, 0))
+        ttk.Label(processing_frame, textvariable=self.processed_videos_var).grid(
+            row=1, column=5, sticky=tk.W, padx=(5, 20), pady=(5, 0)
+        )
+        ttk.Label(processing_frame, text="Skipped/Just Copied").grid(row=1, column=6, sticky=tk.W, pady=(5, 0))
         ttk.Label(processing_frame, textvariable=self.video_skipped_var).grid(
-            row=1, column=6, sticky=tk.W, padx=(5, 0), pady=(5, 0)
+            row=1, column=7, sticky=tk.W, padx=(5, 0), pady=(5, 0)
         )
         ttk.Label(processing_frame, text="Other files copied").grid(row=2, column=2, sticky=tk.W, pady=(5, 0))
         ttk.Label(processing_frame, textvariable=self.other_files_var).grid(
             row=2, column=3, sticky=tk.W, padx=(5, 0), pady=(5, 0)
         )
-        for col in range(7):
+        for col in range(8):
             processing_frame.columnconfigure(col, weight=1)
 
         # Log window
@@ -317,7 +324,7 @@ class MediaConverterApp:
         if not self.mapping:
             messagebox.showinfo("No mapping", "Run a conversion or load a mapping file first.")
             return
-        ComparisonView(self.root, self.mapping)
+        ComparisonView(self.root, self.mapping, ffmpeg_path=self.ffmpeg_path)
 
     def load_mapping_file(self) -> None:
         file_path = filedialog.askopenfilename(title="Select mapping file", filetypes=[("JSON", "*.json")])
@@ -865,13 +872,11 @@ class MediaConverterApp:
                 self.video_skipped_var.set(video_skipped)
             if other_copied is not None:
                 self.other_files_var.set(other_copied)
-            total_processed = (
-                self.processed_images_var.get()
-                + self.image_skipped_var.get()
-                + self.processed_videos_var.get()
-                + self.video_skipped_var.get()
-                + self.other_files_var.get()
-            )
+            image_total = self.processed_images_var.get() + self.image_skipped_var.get()
+            video_total = self.processed_videos_var.get() + self.video_skipped_var.get()
+            self.image_total_var.set(image_total)
+            self.video_total_var.set(video_total)
+            total_processed = image_total + video_total + self.other_files_var.get()
             self.total_processed_var.set(total_processed)
 
         self.root.after(0, update)
@@ -882,7 +887,13 @@ class MediaConverterApp:
 
 
 class ComparisonView(tk.Toplevel):
-    def __init__(self, master: tk.Tk, mapping: Sequence[Dict[str, str]]):
+    def __init__(
+        self,
+        master: tk.Tk,
+        mapping: Sequence[Dict[str, str]],
+        *,
+        ffmpeg_path: Optional[str] = None,
+    ):
         super().__init__(master)
         self.title("Comparison View")
         self.geometry("1200x650")
@@ -903,6 +914,7 @@ class ComparisonView(tk.Toplevel):
         self.fit_mode = False
         self.fit_scales: Dict[str, float] = {"source": 1.0, "dest": 1.0}
         self.metadata: Dict[str, Dict[str, str]] = {"source": {}, "dest": {}}
+        self.ffmpeg_path = ffmpeg_path or shutil.which("ffmpeg")
 
         self._build_ui()
         if self.mapping:
@@ -1020,14 +1032,49 @@ class ComparisonView(tk.Toplevel):
 
     def _load_image(self, path: str) -> Optional[Image.Image]:
         ext = os.path.splitext(path)[1].lower()
-        if ext not in IMAGE_FORMATS:
-            messagebox.showinfo("Preview", f"Cannot preview non-image file: {path}")
+        if ext in IMAGE_FORMATS:
+            try:
+                with Image.open(path) as img:
+                    return img.convert("RGB")
+            except Exception as exc:  # pylint: disable=broad-except
+                messagebox.showerror("Preview", f"Could not open {path}: {exc}")
+                return None
+        if ext in VIDEO_FORMATS:
+            return self._extract_video_frame(path)
+        messagebox.showinfo("Preview", f"Cannot preview this file type: {path}")
+        return None
+
+    def _extract_video_frame(self, path: str) -> Optional[Image.Image]:
+        ffmpeg = self.ffmpeg_path or shutil.which("ffmpeg")
+        if not ffmpeg:
+            messagebox.showinfo(
+                "Preview",
+                "Video preview requires ffmpeg. Please install it to compare video files.",
+            )
             return None
+        cmd = [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            path,
+            "-frames:v",
+            "1",
+            "-f",
+            "image2pipe",
+            "-vcodec",
+            "png",
+            "-",
+        ]
         try:
-            img = Image.open(path)
-            return img.convert("RGB")
+            result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if not result.stdout:
+                raise RuntimeError("ffmpeg did not return frame data")
+            with Image.open(io.BytesIO(result.stdout)) as img:
+                return img.convert("RGB")
         except Exception as exc:  # pylint: disable=broad-except
-            messagebox.showerror("Preview", f"Could not open {path}: {exc}")
+            messagebox.showerror("Preview", f"Could not preview video {path}: {exc}")
             return None
 
     def _render(self) -> None:
