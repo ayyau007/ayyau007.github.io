@@ -912,7 +912,14 @@ class MediaConverterApp:
         ]
         try:
             output = subprocess.check_output(cmd, text=True).strip()
-            width_str, height_str = output.split("x")
+            if not output:
+                raise ValueError("Empty ffprobe response")
+            first_line = output.splitlines()[0]
+            if "x" not in first_line:
+                raise ValueError(f"Unexpected ffprobe output: {first_line}")
+            width_str, height_part = first_line.split("x", 1)
+            width_str = width_str.strip().split(",")[-1]
+            height_str = height_part.strip().split(",")[0].split()[0]
             return int(width_str), int(height_str)
         except Exception as exc:  # pylint: disable=broad-except
             self._log(f"ffprobe failed for {path}: {exc}")
