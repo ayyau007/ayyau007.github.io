@@ -36,6 +36,54 @@ IMAGE_FORMAT_CHOICES = sorted({fmt.lstrip(".") for fmt in IMAGE_FORMATS})
 VIDEO_FORMAT_CHOICES = sorted({fmt.lstrip(".") for fmt in VIDEO_FORMATS})
 RESOLUTION_CHOICES = ["480", "720", "1080", "1440", "2160", "4320"]
 
+DEFAULT_VIDEO_ENCODER_ARGS = (
+    "-c:v",
+    "libx264",
+    "-preset",
+    "medium",
+    "-crf",
+    "23",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "192k",
+)
+
+VIDEO_ENCODER_ARGS = {
+    ".mp4": DEFAULT_VIDEO_ENCODER_ARGS + ("-movflags", "+faststart"),
+    ".mov": DEFAULT_VIDEO_ENCODER_ARGS,
+    ".mkv": DEFAULT_VIDEO_ENCODER_ARGS,
+    ".avi": DEFAULT_VIDEO_ENCODER_ARGS,
+    ".mts": DEFAULT_VIDEO_ENCODER_ARGS,
+    ".flv": DEFAULT_VIDEO_ENCODER_ARGS,
+    ".webm": (
+        "-c:v",
+        "libvpx-vp9",
+        "-crf",
+        "32",
+        "-b:v",
+        "0",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "libopus",
+        "-b:a",
+        "128k",
+    ),
+    ".wmv": (
+        "-c:v",
+        "wmv2",
+        "-b:v",
+        "4M",
+        "-c:a",
+        "wmav2",
+        "-b:a",
+        "192k",
+    ),
+}
+
 
 def format_file_size(num_bytes: Optional[int]) -> str:
     """Return a human-readable size string."""
@@ -901,24 +949,28 @@ class MediaConverterApp:
         scale_filter = (
             f"scale='if(gt(iw,ih),{target_long_side},-2)':'if(gt(iw,ih),-2,{target_long_side})'"
         )
+        encoding_args = self._video_encoding_args(config.get("output_format"), dest)
         cmd = [
             self.ffmpeg_path,
+            "-hide_banner",
+            "-loglevel",
+            "error",
             "-y",
             "-i",
             source,
             "-vf",
             scale_filter,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "medium",
-            "-crf",
-            "23",
-            "-c:a",
-            "copy",
-            dest,
         ]
+        cmd.extend(encoding_args)
+        cmd.append(dest)
         subprocess.run(cmd, check=True, capture_output=True)
+
+    def _video_encoding_args(self, requested_format: Optional[str], dest: str) -> List[str]:
+        ext = self._normalize_format(requested_format or os.path.splitext(dest)[1])
+        preset = VIDEO_ENCODER_ARGS.get(ext)
+        if not preset:
+            preset = VIDEO_ENCODER_ARGS.get(".mp4", DEFAULT_VIDEO_ENCODER_ARGS)
+        return list(preset)
 
     def _save_mapping(self, mapping: List[Dict[str, str]], job: Dict[str, object]) -> None:
         if not self.target_folder:
