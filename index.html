@@ -76,15 +76,38 @@
     }
 
     .avatar-frame {
-      width: 96px;
-      height: 96px;
+      width: 120px;
+      height: 120px;
       border-radius: 50%;
-      background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.3), rgba(124, 58, 237, 0.4)),
+      background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.35), rgba(124, 58, 237, 0.45)),
         linear-gradient(135deg, rgba(6, 182, 212, 0.8), rgba(124, 58, 237, 0.7));
       border: 3px solid rgba(255, 255, 255, 0.15);
       position: relative;
       overflow: hidden;
       box-shadow: 0 14px 40px rgba(124, 58, 237, 0.35);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.3s ease;
+    }
+
+    .avatar-frame:hover {
+      transform: translateY(-2px) scale(1.02);
+      box-shadow: 0 18px 60px rgba(124, 58, 237, 0.45);
+    }
+
+    .avatar-ring {
+      position: absolute;
+      inset: -6px;
+      border-radius: 50%;
+      border: 2px dashed rgba(255, 255, 255, 0.35);
+      animation: spin 14s linear infinite;
+      pointer-events: none;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
     }
 
     .avatar-frame img {
@@ -92,6 +115,58 @@
       height: 100%;
       object-fit: cover;
       display: block;
+      position: relative;
+      z-index: 1;
+      animation: breathe 6s ease-in-out infinite;
+    }
+
+    @keyframes breathe {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.02); }
+    }
+
+    .avatar-mouth {
+      position: absolute;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 46px;
+      height: 18px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 50% 40%, rgba(0, 0, 0, 0.45), rgba(124, 58, 237, 0.6));
+      opacity: 0;
+      z-index: 2;
+      transition: opacity 0.15s ease;
+      filter: blur(0.2px);
+    }
+
+    .avatar-frame.speaking .avatar-mouth {
+      opacity: 0.8;
+      animation: talk 0.2s ease-in-out infinite alternate;
+    }
+
+    @keyframes talk {
+      from { transform: translateX(-50%) scaleY(0.6); }
+      to { transform: translateX(-50%) scaleY(1.25); }
+    }
+
+    .avatar-voicewave {
+      position: absolute;
+      inset: 6px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(124, 58, 237, 0.08), rgba(6, 182, 212, 0.05));
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .avatar-frame.speaking .avatar-voicewave {
+      opacity: 1;
+      animation: pulse 1.2s ease-out infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); opacity: 0.9; }
+      100% { transform: scale(1.2); opacity: 0; }
     }
 
     .avatar-status {
@@ -104,6 +179,7 @@
       background: var(--success);
       border: 2px solid #0f172a;
       box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.5);
+      z-index: 3;
     }
 
     .chat-card {
@@ -281,7 +357,10 @@
   <header>
     <div class="hero">
       <div class="avatar-frame" id="avatarFrame">
+        <div class="avatar-ring" aria-hidden="true"></div>
         <img id="avatarImg" alt="Chatbot avatar" />
+        <div class="avatar-mouth" aria-hidden="true"></div>
+        <div class="avatar-voicewave" aria-hidden="true"></div>
         <div class="avatar-status" title="Ready to chat"></div>
       </div>
       <div>
@@ -350,6 +429,7 @@
     const photoPreview = document.getElementById('photoPreview');
     const voicePreview = document.getElementById('voicePreview');
     const avatarImg = document.getElementById('avatarImg');
+    const avatarFrame = document.getElementById('avatarFrame');
     const trainButton = document.getElementById('trainButton');
     const trainStatus = document.getElementById('trainStatus');
     const trainSummary = document.getElementById('trainSummary');
@@ -361,7 +441,11 @@
       photos: [],
       voices: [],
       iterations: 0,
+      voiceProfile: null,
     };
+
+    let currentVoice;
+    let speaking = false;
 
     function appendMessage(text, role) {
       const message = document.createElement('div');
@@ -371,19 +455,38 @@
       chatLog.scrollTop = chatLog.scrollHeight;
     }
 
+    function setSpeaking(state) {
+      speaking = state;
+      avatarFrame.classList.toggle('speaking', state);
+      speechIndicator.classList.toggle('on', state || listening);
+      speechIndicatorLabel.textContent = state ? 'Speaking…' : listening ? 'Listening…' : 'Speech off';
+    }
+
     function speak(text) {
       if (!speechOutput || !('speechSynthesis' in window)) return;
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.pitch = 1;
-      utterance.rate = 1;
+      if (currentVoice) utterance.voice = currentVoice;
+      if (training.voiceProfile) {
+        utterance.pitch = training.voiceProfile.pitch;
+        utterance.rate = training.voiceProfile.rate;
+      }
+      utterance.onstart = () => setSpeaking(true);
+      utterance.onend = () => setSpeaking(false);
+      utterance.onerror = () => setSpeaking(false);
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(utterance);
     }
 
     function respond(userText) {
       const photoNote = training.photos.length ? `${training.photos.length} photo${training.photos.length > 1 ? 's' : ''}` : 'no photos yet';
-      const voiceNote = training.voices.length ? `${training.voices.length} voice clip${training.voices.length > 1 ? 's' : ''}` : 'no voice samples yet';
-      const response = `I heard: "${userText}". I'm speaking with your ${voiceNote} and imagining your ${photoNote}.`;
+      const voiceNote = training.voiceProfile ? `voice tuned to ${training.voiceProfile.name}` : 'default voice';
+      const presenceIntro = training.photos.length
+        ? 'I am mirroring the face you trained me with so you feel a real presence beside you.'
+        : 'Upload a photo to let me mirror your look while we talk.';
+      const persona = training.voiceProfile
+        ? `I am speaking with the tone of “${training.voiceProfile.name}” so it sounds like someone you know.`
+        : 'I will switch to your custom tone once you upload a voice sample.';
+      const response = `${presenceIntro} ${persona} I heard: "${userText}". I am using ${voiceNote} and imagining your ${photoNote}.`;
       appendMessage(response, 'bot');
       speak(response);
     }
@@ -397,8 +500,8 @@
     }
 
     function updateSpeechIndicator() {
-      speechIndicator.classList.toggle('on', listening);
-      speechIndicatorLabel.textContent = listening ? 'Listening…' : 'Speech off';
+      speechIndicator.classList.toggle('on', listening || speaking);
+      speechIndicatorLabel.textContent = speaking ? 'Speaking…' : listening ? 'Listening…' : 'Speech off';
     }
 
     function startListening() {
@@ -428,7 +531,7 @@
 
     function refreshTrainSummary() {
       const photoText = `${training.photos.length} photo sample${training.photos.length === 1 ? '' : 's'}`;
-      const voiceText = `${training.voices.length} voice sample${training.voices.length === 1 ? '' : 's'}`;
+      const voiceText = training.voiceProfile ? `voice tuned to ${training.voiceProfile.name}` : `${training.voices.length} voice sample${training.voices.length === 1 ? '' : 's'}`;
       trainSummary.textContent = `Prepared with ${photoText} and ${voiceText}. Training runs: ${training.iterations}.`;
     }
 
@@ -448,20 +551,33 @@
       });
     }
 
+    function selectVoiceProfile() {
+      const voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
+      currentVoice = voices.find((v) => v.lang?.startsWith('en')) || voices[0] || null;
+    }
+
     function handleVoiceUpload(files) {
       voicePreview.innerHTML = '';
-      Array.from(files).forEach((file) => {
+      Array.from(files).forEach((file, index) => {
         const reader = new FileReader();
         reader.onload = (e) => {
           const audio = document.createElement('audio');
           audio.controls = true;
           audio.src = e.target.result;
           voicePreview.appendChild(audio);
-          training.voices.push({ name: file.name, src: e.target.result });
+          const signature = {
+            name: file.name.replace(/\.[^/.]+$/, ''),
+            src: e.target.result,
+            pitch: 1 + index * 0.03,
+            rate: 1 - index * 0.02,
+          };
+          training.voices.push(signature);
+          training.voiceProfile = signature;
           refreshTrainSummary();
         };
         reader.readAsDataURL(file);
       });
+      selectVoiceProfile();
     }
 
     function wireRecognition() {
@@ -497,6 +613,12 @@
         micButton.textContent = '🎤';
       };
     }
+
+    avatarFrame.addEventListener('click', () => {
+      const prompt = 'Hey! I am right here with you. Ask me anything or tap the mic so we can talk naturally.';
+      appendMessage(prompt, 'bot');
+      speak(prompt);
+    });
 
     sendButton.addEventListener('click', handleSend);
     chatInput.addEventListener('keypress', (e) => {
@@ -547,6 +669,10 @@
     setAvatarPreview('https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=300&q=80');
     appendMessage('Hello! Upload a photo/voice sample and start chatting.', 'bot');
     wireRecognition();
+    selectVoiceProfile();
+    if (window.speechSynthesis) {
+      window.speechSynthesis.onvoiceschanged = selectVoiceProfile;
+    }
     updateSpeechIndicator();
     refreshTrainSummary();
   </script>
