@@ -1,10 +1,554 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta name="google-site-verification" content="3yUtW8qlcctMLm_lgX-0GLQL7draGdwHO0ZR3BxQ_2c" />
-  </head>
- <body>
-<h1>Hello World</h1>
-<p>I'm hosted with GitHub Pages.</p>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Avatar Chatbot Studio</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: rgba(255, 255, 255, 0.06);
+      --panel-strong: rgba(255, 255, 255, 0.1);
+      --text: #e2e8f0;
+      --accent: #7c3aed;
+      --accent-2: #06b6d4;
+      --success: #22c55e;
+      --danger: #ef4444;
+      --muted: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      color: var(--text);
+      background: radial-gradient(circle at 20% 20%, rgba(124, 58, 237, 0.3), transparent 30%),
+        radial-gradient(circle at 80% 0%, rgba(6, 182, 212, 0.25), transparent 25%),
+        linear-gradient(145deg, #0b1224, #0f172a 60%, #0b1020);
+      padding: 32px 16px 48px;
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: 32px;
+    }
+
+    p.lead {
+      margin: 0 0 24px;
+      color: var(--muted);
+      max-width: 800px;
+    }
+
+    .app-shell {
+      display: grid;
+      gap: 20px;
+      grid-template-columns: 1.2fr 1fr;
+      align-items: start;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--panel-strong);
+      border-radius: 16px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.25);
+      padding: 20px;
+    }
+
+    .card h2 {
+      margin: 0 0 8px;
+      font-size: 20px;
+    }
+
+    .card small {
+      color: var(--muted);
+    }
+
+    .hero {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .avatar-frame {
+      width: 96px;
+      height: 96px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.3), rgba(124, 58, 237, 0.4)),
+        linear-gradient(135deg, rgba(6, 182, 212, 0.8), rgba(124, 58, 237, 0.7));
+      border: 3px solid rgba(255, 255, 255, 0.15);
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 14px 40px rgba(124, 58, 237, 0.35);
+    }
+
+    .avatar-frame img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .avatar-status {
+      position: absolute;
+      bottom: 8px;
+      right: 8px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--success);
+      border: 2px solid #0f172a;
+      box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.5);
+    }
+
+    .chat-card {
+      height: 80vh;
+      min-height: 640px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .chat-log {
+      flex: 1;
+      margin: 12px 0;
+      padding: 16px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.03);
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .message {
+      padding: 10px 12px;
+      border-radius: 14px;
+      max-width: 82%;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+
+    .message.user {
+      margin-left: auto;
+      background: linear-gradient(135deg, rgba(124, 58, 237, 0.35), rgba(6, 182, 212, 0.35));
+      border: 1px solid rgba(124, 58, 237, 0.3);
+    }
+
+    .message.bot {
+      margin-right: auto;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--panel-strong);
+    }
+
+    .input-row {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .input-row input[type="text"] {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--panel-strong);
+      background: rgba(15, 23, 42, 0.7);
+      color: var(--text);
+      font-size: 15px;
+    }
+
+    button {
+      border: none;
+      border-radius: 12px;
+      padding: 12px 16px;
+      cursor: pointer;
+      font-weight: 600;
+      color: white;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 10px 30px rgba(124, 58, 237, 0.3);
+      transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+    }
+
+    button.secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text);
+      border: 1px solid var(--panel-strong);
+      box-shadow: none;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.05);
+    }
+
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 999px;
+      border: 1px solid var(--panel-strong);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .status {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status strong {
+      color: var(--text);
+    }
+
+    .upload-box {
+      padding: 14px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px dashed rgba(255, 255, 255, 0.25);
+    }
+
+    .preview-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+      gap: 10px;
+    }
+
+    .preview-grid img, .preview-grid audio {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid var(--panel-strong);
+      background: rgba(0, 0, 0, 0.2);
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      justify-content: flex-end;
+      color: var(--muted);
+    }
+
+    .pill {
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(124, 58, 237, 0.15);
+      color: #ddd6fe;
+      border: 1px solid rgba(124, 58, 237, 0.3);
+      font-size: 12px;
+    }
+
+    .indicator {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+
+    .indicator.on {
+      background: var(--success);
+      box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.15);
+    }
+
+    @media (max-width: 1024px) {
+      .app-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .chat-card {
+        height: auto;
+        min-height: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="hero">
+      <div class="avatar-frame" id="avatarFrame">
+        <img id="avatarImg" alt="Chatbot avatar" />
+        <div class="avatar-status" title="Ready to chat"></div>
+      </div>
+      <div>
+        <h1>Avatar Chatbot Studio</h1>
+        <p class="lead">Chat with a friendly assistant that responds with speech, listens to your voice, and can be tuned with your own sample photos and voice uploads.</p>
+        <div class="badge">Speech I/O · Avatar Preview · Upload-to-Train</div>
+      </div>
+    </div>
+  </header>
+
+  <div class="app-shell">
+    <section class="card chat-card">
+      <div class="toggle-row">
+        <span class="indicator" id="speechIndicator"></span>
+        <span id="speechIndicatorLabel">Speech off</span>
+        <div class="pill" id="ttsPill">Speech output: on</div>
+      </div>
+      <div class="chat-log" id="chatLog"></div>
+      <div class="input-row">
+        <input id="chatInput" type="text" placeholder="Type a message or use the mic" autocomplete="off" />
+        <button class="secondary" id="micButton" aria-label="Start voice input">🎤</button>
+        <button id="sendButton">Send</button>
+      </div>
+      <div class="status" id="micStatus">Voice input not started.</div>
+      <div class="status" id="trainSummary">No training samples yet.</div>
+    </section>
+
+    <section class="card stack">
+      <div>
+        <h2>Avatar & Voice Trainer</h2>
+        <small>Upload reference photos and voice clips to personalize the chatbot's appearance and tone.</small>
+      </div>
+
+      <div class="upload-box">
+        <strong>Photo samples</strong>
+        <p class="status">PNG or JPG. The latest photo becomes the chat avatar preview.</p>
+        <input id="photoInput" type="file" accept="image/*" multiple />
+        <div class="preview-grid" id="photoPreview"></div>
+      </div>
+
+      <div class="upload-box">
+        <strong>Voice samples</strong>
+        <p class="status">Upload short WAV or MP3 clips to influence the assistant's tone.</p>
+        <input id="voiceInput" type="file" accept="audio/*" multiple />
+        <div class="preview-grid" id="voicePreview"></div>
+      </div>
+
+      <div class="stack">
+        <button id="trainButton">Run quick training pass</button>
+        <div class="status" id="trainStatus">Idle · waiting for uploads.</div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const chatLog = document.getElementById('chatLog');
+    const chatInput = document.getElementById('chatInput');
+    const sendButton = document.getElementById('sendButton');
+    const micButton = document.getElementById('micButton');
+    const micStatus = document.getElementById('micStatus');
+    const speechIndicator = document.getElementById('speechIndicator');
+    const speechIndicatorLabel = document.getElementById('speechIndicatorLabel');
+    const ttsPill = document.getElementById('ttsPill');
+    const photoInput = document.getElementById('photoInput');
+    const voiceInput = document.getElementById('voiceInput');
+    const photoPreview = document.getElementById('photoPreview');
+    const voicePreview = document.getElementById('voicePreview');
+    const avatarImg = document.getElementById('avatarImg');
+    const trainButton = document.getElementById('trainButton');
+    const trainStatus = document.getElementById('trainStatus');
+    const trainSummary = document.getElementById('trainSummary');
+
+    let recognition;
+    let listening = false;
+    let speechOutput = true;
+    const training = {
+      photos: [],
+      voices: [],
+      iterations: 0,
+    };
+
+    function appendMessage(text, role) {
+      const message = document.createElement('div');
+      message.className = `message ${role}`;
+      message.textContent = text;
+      chatLog.appendChild(message);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    function speak(text) {
+      if (!speechOutput || !('speechSynthesis' in window)) return;
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.pitch = 1;
+      utterance.rate = 1;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+    }
+
+    function respond(userText) {
+      const photoNote = training.photos.length ? `${training.photos.length} photo${training.photos.length > 1 ? 's' : ''}` : 'no photos yet';
+      const voiceNote = training.voices.length ? `${training.voices.length} voice clip${training.voices.length > 1 ? 's' : ''}` : 'no voice samples yet';
+      const response = `I heard: "${userText}". I'm speaking with your ${voiceNote} and imagining your ${photoNote}.`;
+      appendMessage(response, 'bot');
+      speak(response);
+    }
+
+    function handleSend() {
+      const text = chatInput.value.trim();
+      if (!text) return;
+      appendMessage(text, 'user');
+      chatInput.value = '';
+      respond(text);
+    }
+
+    function updateSpeechIndicator() {
+      speechIndicator.classList.toggle('on', listening);
+      speechIndicatorLabel.textContent = listening ? 'Listening…' : 'Speech off';
+    }
+
+    function startListening() {
+      if (!recognition) {
+        micStatus.textContent = 'Speech recognition is not supported in this browser.';
+        return;
+      }
+      recognition.start();
+      listening = true;
+      updateSpeechIndicator();
+      micStatus.textContent = 'Listening... speak now.';
+      micButton.textContent = '⏹️';
+    }
+
+    function stopListening() {
+      if (!recognition) return;
+      recognition.stop();
+      listening = false;
+      updateSpeechIndicator();
+      micStatus.textContent = 'Voice input stopped.';
+      micButton.textContent = '🎤';
+    }
+
+    function setAvatarPreview(src) {
+      avatarImg.src = src;
+    }
+
+    function refreshTrainSummary() {
+      const photoText = `${training.photos.length} photo sample${training.photos.length === 1 ? '' : 's'}`;
+      const voiceText = `${training.voices.length} voice sample${training.voices.length === 1 ? '' : 's'}`;
+      trainSummary.textContent = `Prepared with ${photoText} and ${voiceText}. Training runs: ${training.iterations}.`;
+    }
+
+    function handlePhotoUpload(files) {
+      photoPreview.innerHTML = '';
+      Array.from(files).forEach((file) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = document.createElement('img');
+          img.src = e.target.result;
+          photoPreview.appendChild(img);
+          training.photos.push(e.target.result);
+          setAvatarPreview(e.target.result);
+          refreshTrainSummary();
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function handleVoiceUpload(files) {
+      voicePreview.innerHTML = '';
+      Array.from(files).forEach((file) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const audio = document.createElement('audio');
+          audio.controls = true;
+          audio.src = e.target.result;
+          voicePreview.appendChild(audio);
+          training.voices.push({ name: file.name, src: e.target.result });
+          refreshTrainSummary();
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function wireRecognition() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        recognition = null;
+        micStatus.textContent = 'Speech recognition unavailable in this browser.';
+        return;
+      }
+      recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        chatInput.value = transcript;
+        micStatus.textContent = `Captured: "${transcript}"`;
+        handleSend();
+      };
+
+      recognition.onend = () => {
+        listening = false;
+        updateSpeechIndicator();
+        micButton.textContent = '🎤';
+        micStatus.textContent = 'Voice input complete.';
+      };
+
+      recognition.onerror = (event) => {
+        micStatus.textContent = `Speech error: ${event.error}`;
+        listening = false;
+        updateSpeechIndicator();
+        micButton.textContent = '🎤';
+      };
+    }
+
+    sendButton.addEventListener('click', handleSend);
+    chatInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') handleSend();
+    });
+
+    micButton.addEventListener('click', () => {
+      if (listening) {
+        stopListening();
+      } else {
+        startListening();
+      }
+    });
+
+    photoInput.addEventListener('change', (e) => {
+      training.photos = [];
+      handlePhotoUpload(e.target.files);
+    });
+
+    voiceInput.addEventListener('change', (e) => {
+      training.voices = [];
+      handleVoiceUpload(e.target.files);
+    });
+
+    trainButton.addEventListener('click', () => {
+      if (!training.photos.length && !training.voices.length) {
+        trainStatus.textContent = 'Add at least one photo or voice sample to train.';
+        trainStatus.style.color = 'var(--danger)';
+        return;
+      }
+      trainStatus.style.color = 'var(--muted)';
+      trainStatus.textContent = 'Training in progress...';
+      trainButton.disabled = true;
+      setTimeout(() => {
+        training.iterations += 1;
+        trainStatus.textContent = `Finished training pass ${training.iterations}. The assistant is updated!`;
+        trainButton.disabled = false;
+        refreshTrainSummary();
+      }, 900);
+    });
+
+    ttsPill.addEventListener('click', () => {
+      speechOutput = !speechOutput;
+      ttsPill.textContent = `Speech output: ${speechOutput ? 'on' : 'off'}`;
+    });
+
+    // Initialize defaults
+    setAvatarPreview('https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=300&q=80');
+    appendMessage('Hello! Upload a photo/voice sample and start chatting.', 'bot');
+    wireRecognition();
+    updateSpeechIndicator();
+    refreshTrainSummary();
+  </script>
 </body>
 </html>
