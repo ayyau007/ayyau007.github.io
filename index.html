@@ -397,6 +397,20 @@
 
     <section class="card stack">
       <div>
+        <h2>AI backend connection</h2>
+        <small>Point the studio at a real inference and training service to power live generation.</small>
+      </div>
+      <div class="upload-box">
+        <strong>Service base URL</strong>
+        <p class="status">Example: https://your-api.example.com. All chat and training calls are sent here.</p>
+        <input id="apiBaseInput" type="text" placeholder="https://api.your-llm.com" />
+        <strong style="display:block;margin-top:10px;">API key (stored locally)</strong>
+        <p class="status">Used in the Authorization header for real model + training calls.</p>
+        <input id="apiKeyInput" type="text" placeholder="sk-..." />
+        <div class="status" id="apiStatus">No backend configured. Calls will stay local.</div>
+      </div>
+
+      <div>
         <h2>Avatar & Voice Trainer</h2>
         <small>Upload reference photos and voice clips to personalize the chatbot's appearance and tone.</small>
       </div>
@@ -452,10 +466,20 @@
     const renderStatus = document.getElementById('renderStatus');
     const videoInput = document.getElementById('videoInput');
     const videoPreview = document.getElementById('videoPreview');
+    const apiBaseInput = document.getElementById('apiBaseInput');
+    const apiKeyInput = document.getElementById('apiKeyInput');
+    const apiStatus = document.getElementById('apiStatus');
 
     let recognition;
     let listening = false;
     let speechOutput = true;
+    const backend = {
+      baseUrl: '',
+      apiKey: '',
+      modelId: null,
+      avatarUrl: null,
+      voiceId: null,
+    };
     const training = {
       photos: [],
       voices: [],
@@ -464,6 +488,8 @@
       videos: [],
       lastRender: null,
     };
+
+    const messages = [];
 
     let currentVoice;
     let speaking = false;
@@ -474,6 +500,7 @@
       message.textContent = text;
       chatLog.appendChild(message);
       chatLog.scrollTop = chatLog.scrollHeight;
+      return message;
     }
 
     function setSpeaking(state) {
@@ -498,28 +525,73 @@
       window.speechSynthesis.speak(utterance);
     }
 
-    function respond(userText) {
-      const photoNote = training.photos.length ? `${training.photos.length} photo${training.photos.length > 1 ? 's' : ''}` : 'no photos yet';
-      const voiceNote = training.voiceProfile ? `voice tuned to ${training.voiceProfile.name}` : 'default voice';
-      const videoNote = training.videos.length ? `${training.videos.length} motion clip${training.videos.length > 1 ? 's' : ''} loaded for lip sync` : 'no motion clips yet';
-      const presenceIntro = training.photos.length
-        ? 'I am mirroring the face you trained me with so you feel a real presence beside you.'
-        : 'Upload a photo to let me mirror your look while we talk.';
-      const persona = training.voiceProfile
-        ? `I am speaking with the tone of “${training.voiceProfile.name}” so it sounds like someone you know.`
-        : 'I will switch to your custom tone once you upload a voice sample.';
-      const synthesiaLine = training.videos.length
-        ? 'I can render a HeyGen/Synthesia-style talking head clip from your uploaded video pose and photo look.'
-        : 'Add a short video clip so I can animate an AI avatar clip like HeyGen or Synthesia.';
-      const response = `${presenceIntro} ${persona} ${synthesiaLine} I heard: "${userText}". I am using ${voiceNote}, imagining your ${photoNote}, and synced to ${videoNote}.`;
-      appendMessage(response, 'bot');
-      speak(response);
+    async function respond(userText) {
+      const pending = appendMessage('Thinking with your custom model…', 'bot');
+      const payload = {
+        prompt: userText,
+        conversation: messages.slice(-10),
+        modelId: backend.modelId,
+        voiceId: backend.voiceId,
+        avatarUrl: backend.avatarUrl,
+        photoCount: training.photos.length,
+        voiceCount: training.voices.length,
+        videoCount: training.videos.length,
+      };
+
+      async function runLocalFallback() {
+        const photoNote = training.photos.length ? `${training.photos.length} photo${training.photos.length > 1 ? 's' : ''}` : 'no photos yet';
+        const voiceNote = training.voiceProfile ? `voice tuned to ${training.voiceProfile.name}` : 'default voice';
+        const videoNote = training.videos.length ? `${training.videos.length} motion clip${training.videos.length > 1 ? 's' : ''} loaded for lip sync` : 'no motion clips yet';
+        const response = `Backend not configured—responding locally. You said: "${userText}". Using ${photoNote}, ${voiceNote}, and ${videoNote} to shape the reply.`;
+        pending.textContent = response;
+        messages.push({ role: 'assistant', content: response });
+        speak(response);
+      }
+
+      if (!backend.baseUrl) {
+        await runLocalFallback();
+        return;
+      }
+
+      try {
+        const url = backend.baseUrl.replace(/\/$/, '') + '/chat';
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(backend.apiKey ? { Authorization: `Bearer ${backend.apiKey}` } : {}),
+          },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error(`Chat request failed: ${res.status}`);
+        const data = await res.json();
+        const reply = data.reply || data.response || 'No text returned from the model.';
+        pending.textContent = reply;
+        messages.push({ role: 'assistant', content: reply });
+        if (data.avatarUrl) {
+          backend.avatarUrl = data.avatarUrl;
+          setAvatarPreview(data.avatarUrl);
+        }
+        if (data.audioUrl) {
+          const player = new Audio(data.audioUrl);
+          player.onplay = () => setSpeaking(true);
+          player.onended = () => setSpeaking(false);
+          player.onerror = () => setSpeaking(false);
+          await player.play().catch(() => speak(reply));
+        } else {
+          speak(reply);
+        }
+      } catch (err) {
+        pending.textContent = `Realtime model call failed: ${err.message}. Falling back locally.`;
+        await runLocalFallback();
+      }
     }
 
     function handleSend() {
       const text = chatInput.value.trim();
       if (!text) return;
       appendMessage(text, 'user');
+      messages.push({ role: 'user', content: text });
       chatInput.value = '';
       respond(text);
     }
@@ -554,6 +626,32 @@
       avatarImg.src = src;
     }
 
+    function saveBackendConfig() {
+      backend.baseUrl = apiBaseInput.value.trim();
+      backend.apiKey = apiKeyInput.value.trim();
+      localStorage.setItem('avatarStudioBackend', JSON.stringify({ baseUrl: backend.baseUrl, apiKey: backend.apiKey }));
+      apiStatus.textContent = backend.baseUrl
+        ? `Using ${backend.baseUrl} for chat + training calls.`
+        : 'No backend configured. Calls will stay local.';
+    }
+
+    function loadBackendConfig() {
+      const raw = localStorage.getItem('avatarStudioBackend');
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw);
+        backend.baseUrl = parsed.baseUrl || '';
+        backend.apiKey = parsed.apiKey || '';
+        apiBaseInput.value = backend.baseUrl;
+        apiKeyInput.value = backend.apiKey;
+        apiStatus.textContent = backend.baseUrl
+          ? `Using ${backend.baseUrl} for chat + training calls.`
+          : 'No backend configured. Calls will stay local.';
+      } catch (e) {
+        console.warn('Failed to load backend config', e);
+      }
+    }
+
     function refreshTrainSummary() {
       const photoText = `${training.photos.length} photo sample${training.photos.length === 1 ? '' : 's'}`;
       const voiceText = training.voiceProfile ? `voice tuned to ${training.voiceProfile.name}` : `${training.voices.length} voice sample${training.voices.length === 1 ? '' : 's'}`;
@@ -570,7 +668,7 @@
           const img = document.createElement('img');
           img.src = e.target.result;
           photoPreview.appendChild(img);
-          training.photos.push(e.target.result);
+          training.photos.push({ src: e.target.result, file });
           setAvatarPreview(e.target.result);
           refreshTrainSummary();
         };
@@ -597,6 +695,7 @@
             src: e.target.result,
             pitch: 1 + index * 0.03,
             rate: 1 - index * 0.02,
+            file,
           };
           training.voices.push(signature);
           training.voiceProfile = signature;
@@ -618,7 +717,7 @@
           video.muted = true;
           video.loop = true;
           videoPreview.appendChild(video);
-          training.videos.push({ name: file.name.replace(/\.[^/.]+$/, ''), src: e.target.result, mood: index % 2 ? 'confident' : 'warm' });
+          training.videos.push({ name: file.name.replace(/\.[^/.]+$/, ''), src: e.target.result, file, mood: index % 2 ? 'confident' : 'warm' });
           // The last video drives the avatar presence for Synthesia/HeyGen style demos.
           if (index === files.length - 1) {
             avatarImg.src = '';
@@ -699,6 +798,9 @@
       }
     });
 
+    apiBaseInput.addEventListener('change', saveBackendConfig);
+    apiKeyInput.addEventListener('change', saveBackendConfig);
+
     photoInput.addEventListener('change', (e) => {
       training.photos = [];
       handlePhotoUpload(e.target.files);
@@ -721,14 +823,53 @@
         return;
       }
       trainStatus.style.color = 'var(--muted)';
-      trainStatus.textContent = 'Training in progress...';
+      trainStatus.textContent = backend.baseUrl ? 'Uploading samples to train your model…' : 'Training locally (simulated)...';
       trainButton.disabled = true;
-      setTimeout(() => {
+
+      const runLocal = () => {
         training.iterations += 1;
-        trainStatus.textContent = `Finished training pass ${training.iterations}. The assistant is updated!`;
+        trainStatus.textContent = `Finished training pass ${training.iterations} locally. Configure the backend for real training.`;
         trainButton.disabled = false;
         refreshTrainSummary();
-      }, 900);
+      };
+
+      if (!backend.baseUrl) {
+        setTimeout(runLocal, 900);
+        return;
+      }
+
+      const formData = new FormData();
+      training.photos.forEach((p, idx) => formData.append('photos', p.file || p.src, p.file?.name || `photo-${idx}.png`));
+      training.voices.forEach((v, idx) => formData.append('voices', v.file || v.src, v.file?.name || `voice-${idx}.wav`));
+      training.videos.forEach((v, idx) => formData.append('videos', v.file || v.src, v.file?.name || `video-${idx}.mp4`));
+      formData.append('notes', JSON.stringify({ existingModel: backend.modelId }));
+
+      fetch(backend.baseUrl.replace(/\/$/, '') + '/train', {
+        method: 'POST',
+        headers: backend.apiKey ? { Authorization: `Bearer ${backend.apiKey}` } : {},
+        body: formData,
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error(`Train failed: ${res.status}`);
+          return res.json();
+        })
+        .then((data) => {
+          training.iterations += 1;
+          backend.modelId = data.modelId || backend.modelId || 'session-model';
+          backend.avatarUrl = data.avatarUrl || backend.avatarUrl;
+          backend.voiceId = data.voiceId || backend.voiceId;
+          if (backend.avatarUrl) setAvatarPreview(backend.avatarUrl);
+          trainStatus.textContent = data.message || `Training complete on backend. Model: ${backend.modelId}`;
+          trainStatus.style.color = 'var(--success)';
+        })
+        .catch((err) => {
+          trainStatus.textContent = `Backend training failed: ${err.message}. Falling back to local simulation.`;
+          runLocal();
+        })
+        .finally(() => {
+          trainButton.disabled = false;
+          refreshTrainSummary();
+        });
     });
 
     renderButton.addEventListener('click', () => {
@@ -738,24 +879,73 @@
         return;
       }
       renderStatus.style.color = 'var(--muted)';
-      renderStatus.textContent = 'Rendering 8s talking avatar clip (simulated)...';
+      renderStatus.textContent = backend.baseUrl ? 'Requesting backend render…' : 'Rendering preview locally (simulated)…';
       renderButton.disabled = true;
-      let progress = 0;
-      const timer = setInterval(() => {
-        progress += 20;
-        renderStatus.textContent = `Synthesizing face sync · ${progress}%`;
-        if (progress >= 100) {
-          clearInterval(timer);
-          const chosenMood = training.videos[training.videos.length - 1]?.mood || 'friendly';
-          const look = training.photos.length ? 'your uploaded photos' : 'the default look';
-          const tone = training.voiceProfile ? `voice "${training.voiceProfile.name}"` : 'default voice';
-          const label = `Render ${new Date().toLocaleTimeString()}`;
+
+      const finishLocal = () => {
+        const chosenMood = training.videos[training.videos.length - 1]?.mood || 'friendly';
+        const look = training.photos.length ? 'your uploaded photos' : 'the default look';
+        const tone = training.voiceProfile ? `voice "${training.voiceProfile.name}"` : 'default voice';
+        const label = `Render ${new Date().toLocaleTimeString()}`;
+        training.lastRender = label;
+        renderStatus.textContent = `Rendered clip using ${look}, ${tone}, mood ${chosenMood}. (${label})`;
+        renderStatus.style.color = 'var(--success)';
+        renderButton.disabled = false;
+        refreshTrainSummary();
+      };
+
+      if (!backend.baseUrl) {
+        setTimeout(finishLocal, 1200);
+        return;
+      }
+
+      fetch(backend.baseUrl.replace(/\/$/, '') + '/render', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(backend.apiKey ? { Authorization: `Bearer ${backend.apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          modelId: backend.modelId,
+          avatarUrl: backend.avatarUrl || training.photos.at(-1)?.src,
+          voiceId: backend.voiceId,
+        }),
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error(`Render failed: ${res.status}`);
+          return res.json();
+        })
+        .then((data) => {
+          const label = data.label || `Render ${new Date().toLocaleTimeString()}`;
           training.lastRender = label;
-          renderStatus.textContent = `Rendered clip using ${look}, ${tone}, mood ${chosenMood}. (${label})`;
+          if (data.videoUrl) {
+            if (!document.getElementById('avatarVideo')) {
+              const vid = document.createElement('video');
+              vid.id = 'avatarVideo';
+              vid.autoplay = true;
+              vid.loop = true;
+              vid.muted = true;
+              vid.playsInline = true;
+              vid.style.position = 'absolute';
+              vid.style.inset = '0';
+              vid.style.width = '100%';
+              vid.style.height = '100%';
+              vid.style.objectFit = 'cover';
+              avatarFrame.appendChild(vid);
+            }
+            const avatarVideo = document.getElementById('avatarVideo');
+            avatarVideo.src = data.videoUrl;
+            avatarVideo.play().catch(() => {});
+          }
+          renderStatus.textContent = data.message || `Backend render ready. ${label}`;
+          renderStatus.style.color = 'var(--success)';
           renderButton.disabled = false;
           refreshTrainSummary();
-        }
-      }, 320);
+        })
+        .catch((err) => {
+          renderStatus.textContent = `Backend render failed: ${err.message}. Showing local preview instead.`;
+          finishLocal();
+        });
     });
 
     ttsPill.addEventListener('click', () => {
@@ -766,12 +956,14 @@
     // Initialize defaults
     setAvatarPreview('https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=300&q=80');
     appendMessage('Hello! Upload a photo/voice sample and start chatting.', 'bot');
+    messages.push({ role: 'assistant', content: 'Hello! Upload a photo/voice sample and start chatting.' });
     wireRecognition();
     selectVoiceProfile();
     if (window.speechSynthesis) {
       window.speechSynthesis.onvoiceschanged = selectVoiceProfile;
     }
     updateSpeechIndicator();
+    loadBackendConfig();
     refreshTrainSummary();
   </script>
 </body>
