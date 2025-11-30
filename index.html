@@ -305,12 +305,18 @@
       gap: 10px;
     }
 
-    .preview-grid img, .preview-grid audio {
+    .preview-grid img, .preview-grid audio, .preview-grid video {
       width: 100%;
       border-radius: 10px;
       border: 1px solid var(--panel-strong);
       background: rgba(0, 0, 0, 0.2);
     }
+
+    #avatarVideo {
+      z-index: 1;
+      pointer-events: none;
+    }
+    
 
     .toggle-row {
       display: flex;
@@ -386,6 +392,7 @@
       </div>
       <div class="status" id="micStatus">Voice input not started.</div>
       <div class="status" id="trainSummary">No training samples yet.</div>
+      <div class="status" id="renderStatus">Video render studio is idle.</div>
     </section>
 
     <section class="card stack">
@@ -408,9 +415,17 @@
         <div class="preview-grid" id="voicePreview"></div>
       </div>
 
+      <div class="upload-box">
+        <strong>Video samples</strong>
+        <p class="status">MP4 or WebM. Use short clips to drive lip sync and on-camera realism.</p>
+        <input id="videoInput" type="file" accept="video/*" multiple />
+        <div class="preview-grid" id="videoPreview"></div>
+      </div>
+
       <div class="stack">
         <button id="trainButton">Run quick training pass</button>
         <div class="status" id="trainStatus">Idle · waiting for uploads.</div>
+        <button id="renderButton" class="secondary">Render 8s talking avatar clip</button>
       </div>
     </section>
   </div>
@@ -433,6 +448,10 @@
     const trainButton = document.getElementById('trainButton');
     const trainStatus = document.getElementById('trainStatus');
     const trainSummary = document.getElementById('trainSummary');
+    const renderButton = document.getElementById('renderButton');
+    const renderStatus = document.getElementById('renderStatus');
+    const videoInput = document.getElementById('videoInput');
+    const videoPreview = document.getElementById('videoPreview');
 
     let recognition;
     let listening = false;
@@ -442,6 +461,8 @@
       voices: [],
       iterations: 0,
       voiceProfile: null,
+      videos: [],
+      lastRender: null,
     };
 
     let currentVoice;
@@ -480,13 +501,17 @@
     function respond(userText) {
       const photoNote = training.photos.length ? `${training.photos.length} photo${training.photos.length > 1 ? 's' : ''}` : 'no photos yet';
       const voiceNote = training.voiceProfile ? `voice tuned to ${training.voiceProfile.name}` : 'default voice';
+      const videoNote = training.videos.length ? `${training.videos.length} motion clip${training.videos.length > 1 ? 's' : ''} loaded for lip sync` : 'no motion clips yet';
       const presenceIntro = training.photos.length
         ? 'I am mirroring the face you trained me with so you feel a real presence beside you.'
         : 'Upload a photo to let me mirror your look while we talk.';
       const persona = training.voiceProfile
         ? `I am speaking with the tone of “${training.voiceProfile.name}” so it sounds like someone you know.`
         : 'I will switch to your custom tone once you upload a voice sample.';
-      const response = `${presenceIntro} ${persona} I heard: "${userText}". I am using ${voiceNote} and imagining your ${photoNote}.`;
+      const synthesiaLine = training.videos.length
+        ? 'I can render a HeyGen/Synthesia-style talking head clip from your uploaded video pose and photo look.'
+        : 'Add a short video clip so I can animate an AI avatar clip like HeyGen or Synthesia.';
+      const response = `${presenceIntro} ${persona} ${synthesiaLine} I heard: "${userText}". I am using ${voiceNote}, imagining your ${photoNote}, and synced to ${videoNote}.`;
       appendMessage(response, 'bot');
       speak(response);
     }
@@ -532,7 +557,9 @@
     function refreshTrainSummary() {
       const photoText = `${training.photos.length} photo sample${training.photos.length === 1 ? '' : 's'}`;
       const voiceText = training.voiceProfile ? `voice tuned to ${training.voiceProfile.name}` : `${training.voices.length} voice sample${training.voices.length === 1 ? '' : 's'}`;
-      trainSummary.textContent = `Prepared with ${photoText} and ${voiceText}. Training runs: ${training.iterations}.`;
+      const videoText = `${training.videos.length} video sample${training.videos.length === 1 ? '' : 's'}`;
+      const renderText = training.lastRender ? `Last render: ${training.lastRender}` : 'No renders yet';
+      trainSummary.textContent = `Prepared with ${photoText}, ${voiceText}, and ${videoText}. Training runs: ${training.iterations}. ${renderText}.`;
     }
 
     function handlePhotoUpload(files) {
@@ -578,6 +605,45 @@
         reader.readAsDataURL(file);
       });
       selectVoiceProfile();
+    }
+
+    function handleVideoUpload(files) {
+      videoPreview.innerHTML = '';
+      Array.from(files).forEach((file, index) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const video = document.createElement('video');
+          video.src = e.target.result;
+          video.controls = true;
+          video.muted = true;
+          video.loop = true;
+          videoPreview.appendChild(video);
+          training.videos.push({ name: file.name.replace(/\.[^/.]+$/, ''), src: e.target.result, mood: index % 2 ? 'confident' : 'warm' });
+          // The last video drives the avatar presence for Synthesia/HeyGen style demos.
+          if (index === files.length - 1) {
+            avatarImg.src = '';
+            if (!document.getElementById('avatarVideo')) {
+              const vid = document.createElement('video');
+              vid.id = 'avatarVideo';
+              vid.autoplay = true;
+              vid.loop = true;
+              vid.muted = true;
+              vid.playsInline = true;
+              vid.style.position = 'absolute';
+              vid.style.inset = '0';
+              vid.style.width = '100%';
+              vid.style.height = '100%';
+              vid.style.objectFit = 'cover';
+              avatarFrame.appendChild(vid);
+            }
+            const avatarVideo = document.getElementById('avatarVideo');
+            avatarVideo.src = e.target.result;
+            avatarVideo.play().catch(() => {});
+          }
+          refreshTrainSummary();
+        };
+        reader.readAsDataURL(file);
+      });
     }
 
     function wireRecognition() {
@@ -643,9 +709,14 @@
       handleVoiceUpload(e.target.files);
     });
 
+    videoInput.addEventListener('change', (e) => {
+      training.videos = [];
+      handleVideoUpload(e.target.files);
+    });
+
     trainButton.addEventListener('click', () => {
-      if (!training.photos.length && !training.voices.length) {
-        trainStatus.textContent = 'Add at least one photo or voice sample to train.';
+      if (!training.photos.length && !training.voices.length && !training.videos.length) {
+        trainStatus.textContent = 'Add at least one photo, video, or voice sample to train.';
         trainStatus.style.color = 'var(--danger)';
         return;
       }
@@ -658,6 +729,33 @@
         trainButton.disabled = false;
         refreshTrainSummary();
       }, 900);
+    });
+
+    renderButton.addEventListener('click', () => {
+      if (!training.photos.length && !training.videos.length && !training.voiceProfile) {
+        renderStatus.textContent = 'Add video, photo, or voice samples to drive the avatar before rendering.';
+        renderStatus.style.color = 'var(--danger)';
+        return;
+      }
+      renderStatus.style.color = 'var(--muted)';
+      renderStatus.textContent = 'Rendering 8s talking avatar clip (simulated)...';
+      renderButton.disabled = true;
+      let progress = 0;
+      const timer = setInterval(() => {
+        progress += 20;
+        renderStatus.textContent = `Synthesizing face sync · ${progress}%`;
+        if (progress >= 100) {
+          clearInterval(timer);
+          const chosenMood = training.videos[training.videos.length - 1]?.mood || 'friendly';
+          const look = training.photos.length ? 'your uploaded photos' : 'the default look';
+          const tone = training.voiceProfile ? `voice "${training.voiceProfile.name}"` : 'default voice';
+          const label = `Render ${new Date().toLocaleTimeString()}`;
+          training.lastRender = label;
+          renderStatus.textContent = `Rendered clip using ${look}, ${tone}, mood ${chosenMood}. (${label})`;
+          renderButton.disabled = false;
+          refreshTrainSummary();
+        }
+      }, 320);
     });
 
     ttsPill.addEventListener('click', () => {
