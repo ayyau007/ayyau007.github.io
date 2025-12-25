@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Session Manager</title>
+    <link rel="stylesheet" href="session.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <h1>Session Manager</h1>
+        <p>Automatically saved sessions with a tree view.</p>
+      </div>
+      <div class="header-actions">
+        <button id="save-session" class="primary">Save Now</button>
+        <button id="restore-selected">Restore Selected</button>
+        <button id="delete-selected">Delete Selected</button>
+        <button id="close-selected">Close Selected</button>
+        <button id="export-json">Export JSON</button>
+        <label class="file-input">
+          <input type="file" id="import-json" accept="application/json" />
+          Import JSON
+        </label>
+      </div>
+    </header>
+
+    <main>
+      <section class="toolbar">
+        <label class="checkbox">
+          <input type="checkbox" id="select-all" />
+          <span>Select all</span>
+        </label>
+        <div class="hint">
+          Drag tabs to reorder or move them between windows.
+        </div>
+      </section>
+
+      <section id="session-list" class="tree"></section>
+    </main>
+
+    <template id="empty-state">
+      <div class="empty-state">
+        <h2>No sessions saved yet.</h2>
+        <p>Click "Save Now" to capture your current windows and tabs.</p>
+      </div>
+    </template>
+
+    <script src="session.js"></script>
+  </body>
+</html>
