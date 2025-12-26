@@ -163,9 +163,12 @@ const createSessionNode = (session, index) => {
 
   const title = document.createElement("div");
   title.className = "title";
-  title.textContent = `${session.name} • ${new Date(
+  const titleText = document.createElement("span");
+  titleText.className = "node-title";
+  titleText.textContent = `${session.name} • ${new Date(
     session.createdAt
   ).toLocaleString()}`;
+  title.appendChild(titleText);
 
   const actions = document.createElement("div");
   actions.className = "node-actions";
@@ -220,7 +223,10 @@ const createWindowNode = (session, window, windowIndex) => {
 
   const title = document.createElement("div");
   title.className = "title";
-  title.textContent = `${window.title} (${window.tabs.length} tabs)`;
+  const titleText = document.createElement("span");
+  titleText.className = "node-title";
+  titleText.textContent = `${window.title} (${window.tabs.length} tabs)`;
+  title.appendChild(titleText);
 
   const actions = document.createElement("div");
   actions.className = "node-actions";
@@ -279,6 +285,7 @@ const createTabNode = (session, tab, windowIndex, tabIndex) => {
   favicon.src = tab.favIconUrl || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect width='16' height='16' rx='4' fill='%23cbd2d9'/%3E%3C/svg%3E";
   favicon.alt = "";
   const text = document.createElement("span");
+  text.className = "tab-title";
   text.textContent = tab.title || "Untitled Tab";
   const link = document.createElement("a");
   link.href = tab.url || "#";

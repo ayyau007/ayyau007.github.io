@@ -122,11 +122,23 @@ main {
   align-items: center;
   gap: 8px;
   font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .title img {
   width: 16px;
   height: 16px;
+}
+
+.title .node-title,
+.title .tab-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .node-actions {
@@ -162,17 +174,36 @@ main {
   border: 1px solid #e2e8f0;
 }
 
+.tab-row .title {
+  position: relative;
+}
+
 .tab-row:hover .tab-link {
   opacity: 1;
   pointer-events: auto;
+  transform: translateY(0);
 }
 
 .tab-link {
   opacity: 0;
   pointer-events: none;
-  color: #2563eb;
+  color: #ffffff;
   text-decoration: none;
   font-size: 12px;
+  position: absolute;
+  left: 24px;
+  top: 100%;
+  margin-top: 6px;
+  background: rgba(15, 23, 42, 0.95);
+  padding: 6px 10px;
+  border-radius: 6px;
+  max-width: 420px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform: translateY(-4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 5;
 }
 
 .tab-actions {
