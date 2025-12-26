@@ -123,9 +123,7 @@ main {
   gap: 8px;
   font-weight: 600;
   min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  position: relative;
 }
 
 .title img {
@@ -135,10 +133,13 @@ main {
 
 .title .node-title,
 .title .tab-title {
+  display: inline-block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: inherit;
+  text-decoration: none;
 }
 
 .node-actions {

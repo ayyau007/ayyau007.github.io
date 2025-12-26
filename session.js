@@ -254,11 +254,6 @@ const createWindowNode = (session, window, windowIndex) => {
     updateParentCheckboxes(event.target);
   });
 
-  node.addEventListener("dragstart", handleDragStart);
-  node.addEventListener("dragover", handleDragOver);
-  node.addEventListener("drop", handleDrop);
-  node.addEventListener("dragleave", handleDragLeave);
-
   node.append(header, children);
   return node;
 };
@@ -282,17 +277,20 @@ const createTabNode = (session, tab, windowIndex, tabIndex) => {
   const title = document.createElement("div");
   title.className = "title";
   const favicon = document.createElement("img");
-  favicon.src = tab.favIconUrl || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect width='16' height='16' rx='4' fill='%23cbd2d9'/%3E%3C/svg%3E";
+  favicon.src =
+    tab.favIconUrl ||
+    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect width='16' height='16' rx='4' fill='%23cbd2d9'/%3E%3C/svg%3E";
   favicon.alt = "";
-  const text = document.createElement("span");
-  text.className = "tab-title";
-  text.textContent = tab.title || "Untitled Tab";
-  const link = document.createElement("a");
-  link.href = tab.url || "#";
+  const titleLink = document.createElement("a");
+  titleLink.className = "tab-title";
+  titleLink.href = tab.url || "#";
+  titleLink.textContent = tab.title || "Untitled Tab";
+  titleLink.target = "_blank";
+  titleLink.rel = "noopener noreferrer";
+  const link = document.createElement("span");
   link.textContent = tab.url || "No URL";
   link.className = "tab-link";
-  link.target = "_blank";
-  title.append(favicon, text, link);
+  title.append(favicon, titleLink, link);
 
   const actions = document.createElement("div");
   actions.className = "tab-actions";
@@ -307,11 +305,6 @@ const createTabNode = (session, tab, windowIndex, tabIndex) => {
   checkbox.addEventListener("change", (event) => {
     updateParentCheckboxes(event.target);
   });
-
-  node.addEventListener("dragstart", handleDragStart);
-  node.addEventListener("dragover", handleDragOver);
-  node.addEventListener("drop", handleDrop);
-  node.addEventListener("dragleave", handleDragLeave);
 
   return node;
 };
@@ -538,8 +531,13 @@ const closeSelected = async () => {
   }
 };
 
+const getNodeTarget = (event) => event.target.closest("[data-node]");
+
 const handleDragStart = (event) => {
-  const node = event.currentTarget;
+  const node = getNodeTarget(event);
+  if (!node) {
+    return;
+  }
   event.dataTransfer.setData(
     "text/plain",
     JSON.stringify({
@@ -553,21 +551,32 @@ const handleDragStart = (event) => {
 };
 
 const handleDragOver = (event) => {
+  const targetNode = getNodeTarget(event);
+  if (!targetNode) {
+    return;
+  }
   event.preventDefault();
-  event.currentTarget.classList.add("drop-target");
+  targetNode.classList.add("drop-target");
 };
 
 const handleDragLeave = (event) => {
-  event.currentTarget.classList.remove("drop-target");
+  const targetNode = getNodeTarget(event);
+  if (!targetNode) {
+    return;
+  }
+  targetNode.classList.remove("drop-target");
 };
 
 const handleDrop = async (event) => {
+  const targetNode = getNodeTarget(event);
+  if (!targetNode) {
+    return;
+  }
   event.preventDefault();
-  event.currentTarget.classList.remove("drop-target");
+  targetNode.classList.remove("drop-target");
   const data = JSON.parse(event.dataTransfer.getData("text/plain"));
-  const targetNode = event.currentTarget;
 
-  if (data.sessionId !== targetNode.dataset.sessionId) {
+  if (!data.sessionId || data.sessionId !== targetNode.dataset.sessionId) {
     return;
   }
 
@@ -606,11 +615,16 @@ const handleDrop = async (event) => {
 
 const attachEventHandlers = () => {
   sessionList.addEventListener("click", (event) => {
-    const target = event.target;
-    if (target.matches("button[data-action]")) {
+    const target = event.target.closest("button[data-action]");
+    if (target) {
       handleAction(target.dataset.action, target);
     }
   });
+
+  sessionList.addEventListener("dragstart", handleDragStart);
+  sessionList.addEventListener("dragover", handleDragOver);
+  sessionList.addEventListener("drop", handleDrop);
+  sessionList.addEventListener("dragleave", handleDragLeave);
 
   selectAll.addEventListener("change", (event) => {
     const checked = event.target.checked;
@@ -668,7 +682,6 @@ const init = async () => {
   if (!isExtensionEnv) {
     saveButton.disabled = true;
     restoreSelectedButton.disabled = true;
-    deleteSelectedButton.disabled = true;
     closeSelectedButton.disabled = true;
   }
 };
