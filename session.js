@@ -8,6 +8,7 @@ const deleteSelectedButton = document.getElementById("delete-selected");
 const closeSelectedButton = document.getElementById("close-selected");
 const exportJsonButton = document.getElementById("export-json");
 const importJsonInput = document.getElementById("import-json");
+const toolbar = document.querySelector(".toolbar");
 
 let sessions = [];
 const isExtensionEnv =
@@ -613,11 +614,60 @@ const handleDrop = async (event) => {
   renderSessions();
 };
 
+const updateToggleState = (node, collapsed) => {
+  const children = node.querySelector(":scope > .children");
+  if (!children) {
+    return;
+  }
+  const toggle = node.querySelector(":scope .toggle");
+  if (collapsed) {
+    children.classList.add("collapsed");
+  } else {
+    children.classList.remove("collapsed");
+  }
+  if (toggle) {
+    toggle.textContent = children.classList.contains("collapsed") ? "▸" : "▾";
+  }
+};
+
+const toggleLevel = (mode, level) => {
+  const collapsed = mode === "collapse";
+  if (level === "all") {
+    sessionList
+      .querySelectorAll("[data-node='session'], [data-node='window']")
+      .forEach((node) => updateToggleState(node, collapsed));
+    return;
+  }
+  if (level === "windows") {
+    sessionList
+      .querySelectorAll("[data-node='session']")
+      .forEach((node) => updateToggleState(node, collapsed));
+    return;
+  }
+  if (level === "tabs") {
+    sessionList
+      .querySelectorAll("[data-node='window']")
+      .forEach((node) => updateToggleState(node, collapsed));
+  }
+};
+
 const attachEventHandlers = () => {
   sessionList.addEventListener("click", (event) => {
     const target = event.target.closest("button[data-action]");
     if (target) {
       handleAction(target.dataset.action, target);
+    }
+  });
+
+  toolbar?.addEventListener("click", (event) => {
+    const expandButton = event.target.closest("button[data-expand]");
+    if (expandButton) {
+      toggleLevel("expand", expandButton.dataset.expand);
+      return;
+    }
+    const collapseButton = event.target.closest("button[data-collapse]");
+    if (collapseButton) {
+      toggleLevel("collapse", collapseButton.dataset.collapse);
     }
   });
 
