@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Session Manager Treeview",
+  "version": "1.0.0",
+  "description": "Automatically save and manage Chrome sessions with a tree view.",
+  "permissions": ["storage", "tabs", "windows"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Session Manager"
+  }
+}
